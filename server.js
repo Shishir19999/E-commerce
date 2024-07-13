@@ -1,6 +1,7 @@
 import express from "express";
 import morgan from "morgan";
 import dotenv from "dotenv"
+import connectDB from "./config/db.js"
 
 //rest object
 const app=express()
@@ -8,7 +9,11 @@ const app=express()
 //dotenv file
 dotenv.config()
 
-// Use morgan to log requests to the console
+//Database
+connectDB();
+
+//middlewares
+app.use(express.json())
 app.use(morgan('dev'));
 
 //rest api
