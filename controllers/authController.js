@@ -1,6 +1,6 @@
 import { comparePassword, hashPassword } from "../helpers/authHelper.js";
 import userModel from "./../models/userModels.js"
-import { Jwt } from "jsonwebtoken";
+import JWT from "jsonwebtoken";
 
 
 //POST Registration
@@ -58,7 +58,7 @@ export const loginController=async (req,res)=>{
     try{
         const {email,password}=req.body
         //validation
-        if(!email || password){
+        if(!email || !password){
             return res.status(404).send({
                 success:false,
                 message:'Invalid Email or Password'
@@ -89,7 +89,8 @@ export const loginController=async (req,res)=>{
                 email:user.email,
                 phone:user.phone,
                 address:user.address
-            }
+            },
+            token
         })
     }
     catch(error){
