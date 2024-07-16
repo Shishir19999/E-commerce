@@ -11,7 +11,7 @@ const router=express.Router()
 router.post('/register',registerController)
 
 //LOGIN || POST
-router.post('./login',loginController)
+router.post('/login',loginController)
 
 
 export default router
