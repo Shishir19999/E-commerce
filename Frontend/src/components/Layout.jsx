@@ -1,23 +1,31 @@
-import React from 'react'
-import Header from './Header.jsx'
-import Footer from './Footer.jsx'
-import {Helmet} from "react-helmet";
+import React from 'react';
+import { Helmet, HelmetProvider } from 'react-helmet-async';
+import Header from './Header.jsx';
+import Footer from './Footer.jsx';
 
-
-const Layout = ({children,title,description,keywords,author}) => {
+const Layout = ({
+  children,
+  title = 'E-commerce app',
+  description = "mern stack project",
+  keywords = "mern,react,node,mongodb,express",
+  author = "shishir"
+}) => {
   return (
-    <div>
+    <HelmetProvider>
+      <div>
         <Helmet>
           <meta charSet="utf-8" />
-          <meta name="description" content="Free Web tutorials" />
-          <meta name="keywords" content="HTML, CSS, JavaScript" />
-          <meta name="author" content="John Doe" />
+          <meta name="description" content={description} />
+          <meta name="keywords" content={keywords} />
+          <meta name="author" content={author} />
+          <title>{title}</title>
         </Helmet>
-        <Header/>
-        <main style={{minHeight:"70vh"}}>{children}</main>
-      <Footer/>
-    </div>
-  )
-}
+        <Header />
+        <main style={{ minHeight: "70vh" }}>{children}</main>
+        <Footer />
+      </div>
+    </HelmetProvider>
+  );
+};
 
-export default Layout
+export default Layout;
