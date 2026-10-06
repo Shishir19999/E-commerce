@@ -1,0 +1,12 @@
+node_modules
+Client
+.env
+.env.*
+!.env.example
+uploads/*
+!uploads/.gitkeep
+tests
+*.log
+Dockerfile
+.dockerignore
+docker-compose.yml

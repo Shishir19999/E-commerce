@@ -26,6 +26,11 @@ const userSchema=new mongoose.Schema({
      role:{
         type:Number,
         default:0
+     },
+     // bumped on logout; tokens carrying an older value are rejected
+     tokenVersion:{
+        type:Number,
+        default:0
      }
 
 },{timestamps:true})

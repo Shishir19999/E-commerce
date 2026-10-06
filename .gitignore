@@ -1,2 +1,19 @@
 # Ignore environment variables
 .env
+
+# Uploaded product photos
+uploads/*
+!uploads/.gitkeep
+node_modules
+node_modules/
+.env.*
+!.env.example
+!.env.docker.example
+!.env-example
+*.pem
+*.key
+.next/
+dist/
+build/
+coverage/
+*.log
