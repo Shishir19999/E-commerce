@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import Layout from "./../../components/Layout";
 import { useNavigate } from "react-router-dom";
 import {toast} from 'react-toastify'
-import API from './config/API'
+import API, { errMsg } from './config/API'
 
 const Register = () => {
   const [name, setName] = useState("");
@@ -31,7 +31,7 @@ const Register = () => {
       }
     } catch (error) {
       console.log(error);
-      toast.error("Something went wrong");
+      toast.error(errMsg(error));
     }
   };
 
@@ -71,7 +71,7 @@ const Register = () => {
               onChange={(e) => setPassword(e.target.value)}
               className="form-control"
               id="exampleInputPassword1"
-              placeholder="Enter Your Password"
+              placeholder="Enter Your Password (min 6 chars)" minLength={6}
               required
             />
           </div>
