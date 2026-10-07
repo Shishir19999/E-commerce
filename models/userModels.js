@@ -27,6 +27,10 @@ const userSchema=new mongoose.Schema({
         type:Number,
         default:0
      },
+     wishlist:{
+        type:[{type:mongoose.ObjectId,ref:"product"}],
+        default:[]
+     },
      // bumped on logout; tokens carrying an older value are rejected
      tokenVersion:{
         type:Number,

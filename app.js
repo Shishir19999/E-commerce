@@ -7,6 +7,7 @@ import categoryRoute from "./routes/categoryRoute.js";
 import productRoute from "./routes/productRoute.js";
 import orderRoute from "./routes/orderRoute.js";
 import paymentRoute from "./routes/paymentRoute.js";
+import { adminRoute, couponRoute, reviewRoute, wishlistRoute } from "./routes/extraRoutes.js";
 import { webhook } from "./controllers/paymentController.js";
 
 // Express app only (no DB connection / listen) so tests can import it.
@@ -25,6 +26,10 @@ app.use("/api/v1/categories", categoryRoute);
 app.use("/api/v1/products", productRoute);
 app.use("/api/v1/orders", orderRoute);
 app.use("/api/v1/payments", paymentRoute);
+app.use("/api/v1/reviews", reviewRoute);
+app.use("/api/v1/coupons", couponRoute);
+app.use("/api/v1/wishlist", wishlistRoute);
+app.use("/api/v1/admin", adminRoute);
 //uploaded product photos
 app.use("/uploads", express.static(path.resolve(process.env.UPLOAD_DIR || "uploads")));
 
