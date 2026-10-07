@@ -112,3 +112,19 @@ export const logoutController=async(req,res)=>{
 export const testController=(req,res)=>{
     res.send("Protected Route")
 }
+
+//PUT profile: name, phone and address of the signed-in user
+export const profileController=async(req,res)=>{
+    try{
+        const {name,phone,address}=req.body || {}
+        if(!isStr(name,1,100)) return fail(res,'Name is Required')
+        if(!isStr(phone,1,30)) return fail(res,'phone no is Required')
+        if(!isStr(address,1,300)) return fail(res,'address is Required')
+        const user=await userModel.findByIdAndUpdate(req.user._id,{name:name.trim(),phone:phone.trim(),address:address.trim()},{returnDocument:'after'})
+        res.send({success:true,message:'Profile updated',user:{_id:user._id,name:user.name,email:user.email,phone:user.phone,address:user.address,role:user.role}})
+    }
+    catch(error){
+        console.log(error)
+        res.status(500).send({success:false,message:'Error updating profile'})
+    }
+}

@@ -8,6 +8,8 @@ import userModel from "../models/userModels.js";
 import categoryModel from "../models/categoryModel.js";
 import productModel from "../models/productModel.js";
 import orderModel from "../models/orderModel.js";
+import reviewModel from "../models/reviewModel.js";
+import couponModel from "../models/couponModel.js";
 import { slugify } from "../helpers/validate.js";
 
 dotenv.config({ quiet: true });
@@ -80,6 +82,12 @@ for (const [cat, list] of Object.entries(catalog)) {
 
 // orders (deterministic ids); product stock = initial stock - units in non-cancelled orders
 const statuses = ["Delivered", "Delivered", "Delivered", "Shipped", "Shipped", "Processing", "Processing", "Not Processed", "Cancelled"];
+const timelineFor = (status, at) => {
+  const flow = ["Not Processed", "Processing", "Shipped", "Delivered"];
+  const notes = ["Order placed", "Being packed", "Handed to the carrier", "Delivered to the address"];
+  const steps = status === "Cancelled" ? [{ status: "Not Processed", note: notes[0] }, { status: "Cancelled", note: "Cancelled" }] : flow.slice(0, flow.indexOf(status) + 1).map((st, i) => ({ status: st, note: notes[i] }));
+  return steps.map((t, i) => ({ ...t, at: new Date(at.getTime() + i * 86400000) }));
+};
 const orderDocs = [];
 for (let i = 0; i < 60; i++) {
   const u = users[faker.number.int({ min: 1, max: users.length - 1 })];
@@ -93,25 +101,66 @@ const sold = {};
 for (const o of orderDocs) if (o.status !== "Cancelled") for (const it of o.items) sold[it.prod.slug] = (sold[it.prod.slug] || 0) + it.quantity;
 
 const pid = {};
+const variantsFor = (cat) =>
+  cat === "Fashion" ? [{ name: "Size", options: ["S", "M", "L", "XL"] }, { name: "Color", options: ["Black", "Navy", "Sand"] }]
+  : cat === "Electronics" ? [{ name: "Color", options: ["Black", "Silver", "White"] }]
+  : [];
+let n = 0;
 for (const p of prodDefs) {
+  const img = (i) => `https://picsum.photos/seed/${p.slug}-${i}/600/600`;
   const r = await productModel.findOneAndUpdate(
     { slug: p.slug },
-    { $set: { name: p.name, description: p.description, price: p.price, category: catIds[p.cat], photo: `https://picsum.photos/seed/${p.slug}/600/600`, quantity: Math.max(0, p.stock - (sold[p.slug] || 0)) }, $setOnInsert: { slug: p.slug } },
+    {
+      $set: {
+        name: p.name, description: p.description, price: p.price, category: catIds[p.cat],
+        photo: img(0), images: [img(1), img(2), img(3)],
+        variants: variantsFor(p.cat), featured: n % 6 === 0, compareAtPrice: n % 4 === 0 ? Math.round(p.price * 1.25 * 100) / 100 : 0,
+        quantity: Math.max(0, p.stock - (sold[p.slug] || 0)), sold: sold[p.slug] || 0,
+      },
+      $setOnInsert: { slug: p.slug },
+    },
     { upsert: true, returnDocument: 'after' }
   );
   pid[p.slug] = r._id;
+  n++;
 }
+
+// coupons
+for (const c of [
+  { code: "WELCOME10", description: "10% off your order", type: "percent", value: 10, minSubtotal: 0 },
+  { code: "SAVE5", description: "$5 off orders over $40", type: "fixed", value: 5, minSubtotal: 40 },
+  { code: "BIGSPEND25", description: "25% off orders over $150", type: "percent", value: 25, minSubtotal: 150 },
+]) await couponModel.updateOne({ code: c.code }, { $set: { ...c, active: true } }, { upsert: true });
+
+// reviews (deterministic) and rating aggregates
+const comments = ["Great quality for the price.", "Arrived quickly and works as described.", "Good, but the packaging could be better.", "Exactly what I needed.", "Solid build and easy to use.", "Would buy again."];
+await reviewModel.deleteMany({});
+const reviewDocs = [];
+for (const p of prodDefs) {
+  const authors = faker.helpers.arrayElements(users.slice(1), faker.number.int({ min: 1, max: 5 }));
+  for (const u of authors)
+    reviewDocs.push({
+      product: pid[p.slug], user: u._id, userName: u.name,
+      rating: faker.helpers.weightedArrayElement([{ weight: 1, value: 2 }, { weight: 2, value: 3 }, { weight: 5, value: 4 }, { weight: 6, value: 5 }]),
+      comment: faker.helpers.arrayElement(comments), verified: faker.datatype.boolean(),
+    });
+}
+await reviewModel.insertMany(reviewDocs);
+const aggs = await reviewModel.aggregate([{ $group: { _id: "$product", avg: { $avg: "$rating" }, n: { $sum: 1 } } }]);
+for (const a of aggs) await productModel.updateOne({ _id: a._id }, { rating: Math.round(a.avg * 10) / 10, numReviews: a.n });
 
 if (reset) await orderModel.deleteMany({});
 else await orderModel.collection.deleteMany({ _id: { $in: orderDocs.map((o) => o._id) } });
 await orderModel.collection.insertMany(orderDocs.map((o) => ({
   _id: o._id, user: o.u._id,
-  items: o.items.map((x) => ({ _id: new mongoose.Types.ObjectId(), product: pid[x.prod.slug], name: x.name, price: x.price, quantity: x.quantity })),
-  total: o.total, shippingAddress: o.u.address, status: o.status,
+  items: o.items.map((x) => ({ _id: new mongoose.Types.ObjectId(), product: pid[x.prod.slug], name: x.name, price: x.price, quantity: x.quantity, variant: "", photo: `https://picsum.photos/seed/${x.prod.slug}-0/600/600` })),
+  subtotal: o.total, discount: 0, shipping: 0, total: o.total, shippingAddress: o.u.address, status: o.status,
+  timeline: timelineFor(o.status, o.createdAt),
   payment: { method: "mock", status: o.status === "Cancelled" ? "refunded (mock)" : "paid (mock)" },
   createdAt: o.createdAt, updatedAt: new Date(o.createdAt.getTime() + 3600000), __v: 0,
 })));
 
 console.log(`Seeded: ${await userModel.countDocuments()} users, ${await categoryModel.countDocuments()} categories, ${await productModel.countDocuments()} products, ${await orderModel.countDocuments()} orders`);
+console.log("Coupons: WELCOME10, SAVE5 (min $40), BIGSPEND25 (min $150)");
 console.log(`Demo logins (password ${PASSWORD}): admin@example.com (admin), manager@example.com (admin), user@example.com`);
 await mongoose.disconnect();

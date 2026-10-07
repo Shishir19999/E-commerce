@@ -20,6 +20,17 @@ const isHttpUrl = (v) => {
   }
 };
 
+const parseJson = (v, fallback) => {
+  if (Array.isArray(v)) return v;
+  if (typeof v !== "string") return fallback;
+  if (v === "") return fallback;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+
 // Validates body (create: all required; update: only supplied fields). Returns {error} or {data}.
 const parseBody = async (body, file, partial) => {
   const data = {};
@@ -46,6 +57,25 @@ const parseBody = async (body, file, partial) => {
     if (!isId(body.category)) return { error: "A valid category id is required" };
     if (!(await categoryModel.exists({ _id: body.category }))) return { error: "Category not found" };
     data.category = body.category;
+  }
+  if (!partial || has("compareAtPrice")) {
+    const c = body.compareAtPrice === undefined || body.compareAtPrice === "" ? 0 : toNum(body.compareAtPrice);
+    if (!Number.isFinite(c) || c < 0 || c > 1e9) return { error: "Compare-at price must be a number >= 0" };
+    if (has("compareAtPrice") || !partial) data.compareAtPrice = Math.round(c * 100) / 100;
+  }
+  if (has("featured")) data.featured = body.featured === true || body.featured === "true";
+  if (has("images")) {
+    const imgs = parseJson(body.images, []);
+    if (!Array.isArray(imgs) || imgs.length > 8 || !imgs.every((u) => typeof u === "string" && u.length <= 500 && (isHttpUrl(u) || u.startsWith("/uploads/"))))
+      return { error: "Images must be a list of up to 8 http(s) URLs" };
+    data.images = imgs;
+  }
+  if (has("variants")) {
+    const v = parseJson(body.variants, []);
+    const okOpt = (o) => Array.isArray(o) && o.length > 0 && o.length <= 12 && o.every((x) => isStr(x, 1, 30));
+    if (!Array.isArray(v) || v.length > 4 || !v.every((x) => x && isStr(x.name, 1, 30) && okOpt(x.options)))
+      return { error: "Variants must be up to 4 groups, each with a name and 1-12 options" };
+    data.variants = v.map((x) => ({ name: x.name.trim(), options: x.options.map((o) => o.trim()) }));
   }
   if (file) data.photo = `/uploads/${file.filename}`;
   else if (has("photo")) {
@@ -124,11 +154,12 @@ export const deleteProduct = async (req, res) => {
   }
 };
 
-// GET /products?page=1&limit=12&search=...&category=<id or slug>&sort=newest|price_asc|price_desc
+// GET /products?page=1&limit=12&search=...&category=<id or slug>&sort=newest|price_asc|price_desc|rating|popular|name
+//   &minPrice=&maxPrice=&minRating=&inStock=true&featured=true&ids=a,b,c
 export const listProducts = async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 12));
+    const page = Math.max(1, Number.parseInt(req.query.page) || 1);
+    const limit = Math.min(60, Math.max(1, Number.parseInt(req.query.limit) || 12));
     const filter = {};
     if (req.query.search) {
       const s = String(req.query.search).slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -142,11 +173,33 @@ export const listProducts = async (req, res) => {
         filter.category = cat ? cat._id : null;
       }
     }
-    const sorts = { newest: { createdAt: -1 }, price_asc: { price: 1 }, price_desc: { price: -1 } };
+    const price = {};
+    const min = toNum(req.query.minPrice);
+    const max = toNum(req.query.maxPrice);
+    if (Number.isFinite(min)) price.$gte = min;
+    if (Number.isFinite(max)) price.$lte = max;
+    if (Object.keys(price).length) filter.price = price;
+    const minRating = toNum(req.query.minRating);
+    if (Number.isFinite(minRating) && minRating > 0) filter.rating = { $gte: minRating };
+    if (req.query.inStock === "true") filter.quantity = { $gt: 0 };
+    if (req.query.featured === "true") filter.featured = true;
+    if (req.query.ids) {
+      const ids = String(req.query.ids).split(",").filter(isId).slice(0, 50);
+      filter._id = { $in: ids };
+    }
+    const sorts = {
+      newest: { createdAt: -1 },
+      price_asc: { price: 1 },
+      price_desc: { price: -1 },
+      rating: { rating: -1, numReviews: -1 },
+      popular: { sold: -1 },
+      name: { name: 1 },
+    };
     const sort = sorts[req.query.sort] || sorts.newest;
-    const [total, products] = await Promise.all([
+    const [total, products, top] = await Promise.all([
       productModel.countDocuments(filter),
       productModel.find(filter).populate("category", "name slug").sort(sort).skip((page - 1) * limit).limit(limit),
+      productModel.findOne().sort({ price: -1 }).select("price"),
     ]);
     res.send({
       success: true,
@@ -156,6 +209,7 @@ export const listProducts = async (req, res) => {
       limit,
       total,
       totalPages: Math.max(1, Math.ceil(total / limit)),
+      maxPrice: top ? Math.ceil(top.price) : 0,
     });
   } catch (error) {
     serverError(res, "Error fetching products", error);
@@ -171,5 +225,21 @@ export const getProductBySlug = async (req, res) => {
     res.send({ success: true, message: "Product fetched", product });
   } catch (error) {
     serverError(res, "Error fetching product", error);
+  }
+};
+
+// GET /products/:slug/related: same category first, best rated first
+export const relatedProducts = async (req, res) => {
+  try {
+    const product = await productModel.findOne({ slug: String(req.params.slug).toLowerCase() });
+    if (!product) return fail(res, "Product not found", 404);
+    const products = await productModel
+      .find({ category: product.category, _id: { $ne: product._id } })
+      .populate("category", "name slug")
+      .sort({ rating: -1, sold: -1 })
+      .limit(4);
+    res.send({ success: true, message: "Related products fetched", products });
+  } catch (error) {
+    serverError(res, "Error fetching related products", error);
   }
 };

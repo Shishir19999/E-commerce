@@ -1,85 +1,59 @@
-import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'react-toastify'
-import Layout from '../../components/Layout'
-import API, { errMsg } from '../Auth/config/API'
+import { useState } from 'react';
+import { AdminLayout, Modal, TextField } from './AdminKit';
+import { ErrorState, Skeleton, State } from '../../components/Common';
+import { useFetch } from '../../lib/hooks';
+import API, { errMsg } from '../../api/client';
+import { useUI } from '../../context/UIContext';
 
 const AdminCategories = () => {
-  const [categories, setCategories] = useState([])
-  const [name, setName] = useState('')
-  const [editing, setEditing] = useState(null) // {id, name}
+  const { toast, confirm } = useUI();
+  const { data, loading, error, reload } = useFetch(() => API.get('/api/v1/categories').then((r) => r.data.categories), []);
+  const [edit, setEdit] = useState(null); // { _id?, name }
+  const [err, setErr] = useState('');
 
-  const load = useCallback(() => {
-    API.get('/api/v1/categories').then((r) => setCategories(r.data.categories || [])).catch((e) => toast.error(errMsg(e)))
-  }, [])
-  useEffect(() => { load() }, [load])
-
-  const create = async (e) => {
-    e.preventDefault()
+  const save = async (e) => {
+    e.preventDefault();
+    if (!edit.name.trim()) return setErr('Enter a category name');
     try {
-      await API.post('/api/v1/categories', { name })
-      toast.success('Category created')
-      setName('')
-      load()
-    } catch (err) { toast.error(errMsg(err)) }
-  }
-  const save = async () => {
+      if (edit._id) await API.put(`/api/v1/categories/${edit._id}`, { name: edit.name });
+      else await API.post('/api/v1/categories', { name: edit.name });
+      toast.success('Category saved');
+      setEdit(null);
+      setErr('');
+      reload();
+    } catch (x) {
+      setErr(errMsg(x));
+    }
+  };
+  const del = async (c) => {
+    if (!(await confirm({ title: `Delete "${c.name}"?`, message: 'Categories that still contain products cannot be deleted.', confirmLabel: 'Delete', danger: true }))) return;
     try {
-      await API.put(`/api/v1/categories/${editing.id}`, { name: editing.name })
-      toast.success('Category updated')
-      setEditing(null)
-      load()
-    } catch (err) { toast.error(errMsg(err)) }
-  }
-  const del = async (id) => {
-    if (!window.confirm('Delete this category?')) return
-    try {
-      await API.delete(`/api/v1/categories/${id}`)
-      toast.success('Category deleted')
-      load()
-    } catch (err) { toast.error(errMsg(err)) }
-  }
+      await API.delete(`/api/v1/categories/${c._id}`);
+      toast.success('Category deleted');
+      reload();
+    } catch (x) {
+      toast.error(errMsg(x));
+    }
+  };
 
   return (
-    <Layout title="Manage Categories">
-      <div className="page">
-        <h3>Categories</h3>
-        <form className="d-flex gap-2 mb-3" style={{ maxWidth: 480 }} onSubmit={create}>
-          <input className="form-control" placeholder="New category" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} />
-          <button className="btn btn-primary">Add</button>
-        </form>
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Name</th><th>Slug</th><th></th></tr></thead>
-            <tbody>
-              {categories.map((c) => (
-                <tr key={c._id}>
-                  <td>
-                    {editing?.id === c._id
-                      ? <input className="form-control form-control-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
-                      : c.name}
-                  </td>
-                  <td>{c.slug}</td>
-                  <td className="text-nowrap">
-                    {editing?.id === c._id ? (
-                      <>
-                        <button className="btn btn-sm btn-primary me-1" onClick={save}>Save</button>
-                        <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditing(null)}>Cancel</button>
-                      </>
-                    ) : (
-                      <>
-                        <button className="btn btn-sm btn-outline-primary me-1" onClick={() => setEditing({ id: c._id, name: c.name })}>Edit</button>
-                        <button className="btn btn-sm btn-outline-danger" onClick={() => del(c._id)}>Delete</button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </Layout>
-  )
-}
+    <AdminLayout title="Categories" actions={<button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '' }); }}>+ New category</button>}>
+      {loading && !data ? <Skeleton h={200} /> : error ? <ErrorState message={error} onRetry={reload} /> : data.length === 0 ? <State icon="🗂️" title="No categories yet" /> : (
+        <div className="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Slug</th><th><span className="sr-only">Actions</span></th></tr></thead>
+          <tbody>{data.map((c) => <tr key={c._id}><td>{c.name}</td><td className="muted">{c.slug}</td><td style={{ whiteSpace: 'nowrap' }}><button className="btn sm" onClick={() => { setErr(''); setEdit(c); }}>Rename</button> <button className="btn sm danger" onClick={() => del(c)}>Delete</button></td></tr>)}</tbody>
+        </table></div>
+      )}
+      {edit && (
+        <Modal title={edit._id ? 'Rename category' : 'New category'} onClose={() => setEdit(null)}>
+          <form onSubmit={save} noValidate>
+            <TextField id="cat-name" label="Name" value={edit.name} error={err} maxLength={60} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+            <div className="row" style={{ justifyContent: 'flex-end' }}><button type="button" className="btn" onClick={() => setEdit(null)}>Cancel</button><button className="btn primary">Save</button></div>
+          </form>
+        </Modal>
+      )}
+    </AdminLayout>
+  );
+};
 
-export default AdminCategories
+export default AdminCategories;

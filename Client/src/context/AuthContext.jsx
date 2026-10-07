@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import API from '../pages/Auth/config/API';
+import API from '../api/client';
 
 const AuthContext = createContext(null);
 
@@ -32,13 +32,14 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = (user, token) => setAuth({ user, token });
+  const setUser = (user) => setAuth((a) => ({ ...a, user }));
   // Revokes the token server-side first (tokenVersion bump), then clears local state regardless of the outcome
   const logout = async () => {
     try { await API.post('/api/v1/auth/logout'); } catch { /* offline or already revoked: still log out locally */ }
     setAuth({ user: null, token: '' });
   };
 
-  return <AuthContext.Provider value={{ ...auth, login, logout, isAdmin: auth.user?.role === 1 }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ ...auth, login, logout, setUser, isAdmin: auth.user?.role === 1 }}>{children}</AuthContext.Provider>;
 };
 
 // eslint-disable-next-line react-refresh/only-export-components

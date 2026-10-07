@@ -1,5 +1,5 @@
 import express  from "express";
-import {registerController, loginController,testController,meController,logoutController} from "../controllers/authController.js";
+import {registerController, loginController,testController,meController,logoutController,profileController} from "../controllers/authController.js";
 import { isAdmin, requireSignIn } from "../middlewares/authMiddleware.js";
 
 //router object
@@ -13,6 +13,8 @@ router.post('/register',registerController)
 router.post('/login',loginController)
 //current user || GET
 router.get('/me',requireSignIn,meController)
+//update profile || PUT
+router.put("/profile",requireSignIn,profileController)
 //logout (revokes all tokens) || POST
 router.post('/logout',requireSignIn,logoutController)
 //test Routes

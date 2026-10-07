@@ -5,7 +5,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const TEST_URI = process.env.TEST_MONGO_URI || "mongodb://127.0.0.1:27017/ecommerce_test";
+const TEST_URI = process.env.TEST_MONGO_URI || "mongodb://127.0.0.1:27017/ecom_tmp_apitest";
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-secret-not-for-production";
 process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ecom-uploads-"));
