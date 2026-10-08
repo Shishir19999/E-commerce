@@ -15,9 +15,19 @@ const load = () => {
 // eslint-disable-next-line react-refresh/only-export-components
 export const lineKey = (i) => `${i.product}|${i.variant || ''}`;
 
+const loadSaved = () => {
+  try {
+    const c = JSON.parse(localStorage.getItem('saved') || '[]');
+    return Array.isArray(c) ? c.filter((i) => i && i.product) : [];
+  } catch {
+    return [];
+  }
+};
+
 // item: { product (id), variant, slug, name, price, photo, stock, quantity }
 export const CartProvider = ({ children }) => {
   const [items, setItems] = useState(load);
+  const [saved, setSaved] = useState(loadSaved); // saved for later (not part of the order)
   const [open, setOpen] = useState(false);
   const [couponState, setCoupon] = useState(null); // { code, discount, description }
 
@@ -28,6 +38,13 @@ export const CartProvider = ({ children }) => {
       /* storage unavailable */
     }
   }, [items]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('saved', JSON.stringify(saved));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [saved]);
 
   const add = useCallback((p, qty = 1, variant = '') => {
     setItems((cur) => {
@@ -39,6 +56,23 @@ export const CartProvider = ({ children }) => {
   }, []);
   const setQty = useCallback((key, qty) => setItems((cur) => cur.map((i) => (lineKey(i) === key ? { ...i, quantity: Math.max(1, Math.min(i.stock || 100, qty)) } : i))), []);
   const remove = useCallback((key) => setItems((cur) => cur.filter((i) => lineKey(i) !== key)), []);
+  const saveForLater = useCallback((key) => {
+    const line = items.find((i) => lineKey(i) === key);
+    if (!line) return;
+    setItems((cur) => cur.filter((i) => lineKey(i) !== key));
+    setSaved((cur) => [...cur.filter((i) => lineKey(i) !== key), line]);
+  }, [items]);
+  const moveToCart = useCallback((key) => {
+    const line = saved.find((i) => lineKey(i) === key);
+    if (!line) return;
+    setSaved((cur) => cur.filter((i) => lineKey(i) !== key));
+    setItems((cur) => {
+      const found = cur.find((i) => lineKey(i) === key);
+      if (found) return cur.map((i) => (i === found ? { ...i, quantity: Math.min(i.stock || 100, i.quantity + line.quantity) } : i));
+      return [...cur, line];
+    });
+  }, [saved]);
+  const removeSaved = useCallback((key) => setSaved((cur) => cur.filter((i) => lineKey(i) !== key)), []);
   const clear = useCallback(() => {
     setItems([]);
     setCoupon(null);
@@ -76,8 +110,8 @@ export const CartProvider = ({ children }) => {
   const removeCoupon = useCallback(() => setCoupon(null), []);
 
   const value = useMemo(
-    () => ({ items, add, setQty, remove, clear, count, subtotal, open, setOpen, coupon, applyCoupon, removeCoupon, discount: coupon?.discount || 0 }),
-    [items, open, coupon, count, subtotal, add, setQty, remove, clear, applyCoupon, removeCoupon],
+    () => ({ items, saved, saveForLater, moveToCart, removeSaved, add, setQty, remove, clear, count, subtotal, open, setOpen, coupon, applyCoupon, removeCoupon, discount: coupon?.discount || 0 }),
+    [items, saved, saveForLater, moveToCart, removeSaved, open, coupon, count, subtotal, add, setQty, remove, clear, applyCoupon, removeCoupon],
   );
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 };

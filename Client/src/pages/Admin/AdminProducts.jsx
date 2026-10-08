@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { parseVariants } from './variants';
-import { AdminLayout, Modal, TextField } from './AdminKit';
+import { AdminLayout, ExportButton, Modal, TextField } from './AdminKit';
 import { ErrorState, Img, Pager, Skeleton, State } from '../../components/Common';
 import { useDebounced, useFetch } from '../../lib/hooks';
 import API, { errMsg } from '../../api/client';
 import { useUI } from '../../context/UIContext';
-import { money } from '../../lib/format';
+import { fetchAll } from '../../lib/csv';
+import { LOW_STOCK, money, sellerName } from '../../lib/format';
 
 const empty = { name: '', description: '', price: '', compareAtPrice: '', quantity: '', category: '', photo: '', images: '', variants: '', featured: false };
 
 const variantsText = (v = []) => v.map((g) => `${g.name}: ${g.options.join(', ')}`).join(' | ');
 
-const ProductForm = ({ initial, categories, onSaved, onClose }) => {
+const ProductForm = ({ initial, categories, onSaved, onClose, seller }) => {
   const { toast } = useUI();
   const [f, setF] = useState(initial);
   const [file, setFile] = useState(null);
@@ -71,9 +72,9 @@ const ProductForm = ({ initial, categories, onSaved, onClose }) => {
         </div>
         <TextField id="pf-var" label="Variants" placeholder="Color: Black, White | Size: S, M" value={f.variants} error={errs.variants} onChange={set('variants')} />
         <TextField id="pf-photo" label="Main image URL" type="url" placeholder="https://..." value={f.photo.startsWith('art:') ? '' : f.photo} onChange={set('photo')} hint={f.photo.startsWith('art:') ? 'Currently using bundled artwork. Enter a URL or upload to replace it.' : undefined} />
-        <TextField id="pf-file" label="Or upload an image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" error={errs.photo} onChange={(e) => setFile(e.target.files[0] || null)} hint="Up to 250 KB in the demo" />
+        <TextField id="pf-file" label="Or upload an image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" error={errs.photo} onChange={(e) => setFile(e.target.files[0] || null)} hint="Up to 250 KB in the live preview" />
         <TextField id="pf-imgs" as="textarea" rows="2" label="Extra gallery image URLs (one per line)" value={f.images} onChange={set('images')} />
-        <label className="row" style={{ marginBottom: 14 }}><input type="checkbox" checked={f.featured} onChange={set('featured')} /> Featured on the home page</label>
+        {!seller && <label className="row" style={{ marginBottom: 14 }}><input type="checkbox" checked={f.featured} onChange={set('featured')} /> Featured on the home page</label>}
         {errs.form && <div className="err" role="alert" style={{ marginBottom: 10 }}>{errs.form}</div>}
         <div className="row" style={{ justifyContent: 'flex-end' }}><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div>
       </form>
@@ -81,14 +82,14 @@ const ProductForm = ({ initial, categories, onSaved, onClose }) => {
   );
 };
 
-const AdminProducts = () => {
+const AdminProducts = ({ seller = false }) => {
   const { toast, confirm } = useUI();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const q = useDebounced(search, 250);
   const [editing, setEditing] = useState(null);
   const cats = useFetch(() => API.get('/api/v1/categories').then((r) => r.data.categories), []);
-  const { data, loading, error, reload } = useFetch(() => API.get('/api/v1/products', { params: { page, limit: 10, search: q, sort: 'newest' } }).then((r) => r.data), [page, q]);
+  const { data, loading, error, reload } = useFetch(() => API.get(seller ? '/api/v1/seller/products' : '/api/v1/products', { params: { page, limit: 10, search: q, sort: 'newest' } }).then((r) => r.data), [page, q, seller]);
 
   const edit = (p) => setEditing({ ...empty, ...p, price: String(p.price), compareAtPrice: p.compareAtPrice ? String(p.compareAtPrice) : '', quantity: String(p.quantity), category: p.category?._id || '', photo: p.photo || '', images: (p.images || []).join('\n'), variants: variantsText(p.variants) });
   const del = async (p) => {
@@ -103,18 +104,26 @@ const AdminProducts = () => {
   };
 
   return (
-    <AdminLayout title="Products" actions={<button className="btn primary" onClick={() => setEditing(empty)}>+ New product</button>}>
+    <AdminLayout title={seller ? 'My products' : 'Products'} seller={seller} actions={
+      <span className="row">
+        <ExportButton
+          filename={seller ? 'my-products.csv' : 'products.csv'}
+          load={() => fetchAll((p) => API.get(seller ? '/api/v1/seller/products' : '/api/v1/products', { params: { page: p, limit: seller ? 100 : 60, search: q, sort: 'newest' } }).then((r) => r.data), 'products')}
+          columns={[['Name', (p) => p.name], ['Category', (p) => p.category?.name || ''], ['Seller', (p) => sellerName(p.seller)], ['Price', (p) => p.price], ['Compare at', (p) => p.compareAtPrice || ''], ['Stock', (p) => p.quantity], ['Units sold', (p) => p.sold], ['Rating', (p) => p.rating], ['Reviews', (p) => p.numReviews]]}
+        />
+        <button className="btn primary" onClick={() => setEditing(empty)}>+ New product</button>
+      </span>}>
       <input className="input" style={{ marginBottom: 12, maxWidth: 320 }} type="search" placeholder="Search products" aria-label="Search products" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
-      {loading && !data ? <Skeleton h={300} /> : error ? <ErrorState message={error} onRetry={reload} /> : data.products.length === 0 ? <State icon="📦" title="No products found" /> : (
+      {loading && !data ? <Skeleton h={300} /> : error ? <ErrorState message={error} onRetry={reload} /> : data.products.length === 0 ? <State icon="📦" title="No products found" action={<button className="btn primary" onClick={() => setEditing(empty)}>Add your first product</button>} /> : (
         <>
           <div className="table-wrap"><table>
-            <thead><tr><th></th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th><span className="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th></th><th>Name</th><th>Category</th>{!seller && <th>Seller</th>}<th>Price</th><th>Stock</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>{data.products.map((p) => (
               <tr key={p._id}>
                 <td><Img className="thumb" photo={p.photo} name="" /></td>
                 <td>{p.name}{p.featured && <span className="pill info" style={{ marginLeft: 6 }}>Featured</span>}</td>
-                <td>{p.category?.name}</td><td>{money(p.price)}</td>
-                <td><span className={`pill ${p.quantity === 0 ? 'danger' : p.quantity <= 10 ? 'warn' : ''}`}>{p.quantity}</span></td>
+                <td>{p.category?.name}</td>{!seller && <td>{sellerName(p.seller)}</td>}<td>{money(p.price)}</td>
+                <td><span className={`pill ${p.quantity === 0 ? 'danger' : p.quantity <= LOW_STOCK ? 'warn' : ''}`}>{p.quantity}{p.quantity <= LOW_STOCK && <span className="sr-only"> (low stock)</span>}</span></td>
                 <td style={{ whiteSpace: 'nowrap' }}><button className="btn sm" onClick={() => edit(p)}>Edit</button> <button className="btn sm danger" onClick={() => del(p)}>Delete</button></td>
               </tr>
             ))}</tbody>
@@ -122,7 +131,7 @@ const AdminProducts = () => {
           <Pager page={data.page} totalPages={data.totalPages} onPage={setPage} />
         </>
       )}
-      {editing && <ProductForm key={editing._id || 'new'} initial={editing} categories={cats.data || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {editing && <ProductForm seller={seller} key={editing._id || 'new'} initial={editing} categories={cats.data || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
     </AdminLayout>
   );
 };

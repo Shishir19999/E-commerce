@@ -9,7 +9,9 @@ import MyOrders, { Invoice, OrderDetail } from './pages/MyOrders';
 import { CheckoutSuccess, CheckoutCancel } from './pages/CheckoutResult';
 import { Login, Profile, Register, Wishlist } from './pages/Account';
 import { About, Contact, NotFound, Policy } from './pages/Info';
-import { PrivateRoute, AdminRoute } from './components/Routes/Guards';
+import { PrivateRoute, AdminRoute, SellerRoute } from './components/Routes/Guards';
+import Compare from './pages/Compare';
+import Notifications from './pages/Notifications';
 import { Skeleton } from './components/Common';
 
 // admin screens are split into their own chunks; shoppers never download them
@@ -19,6 +21,8 @@ const AdminCategories = lazy(() => import('./pages/Admin/AdminCategories'));
 const AdminOrders = lazy(() => import('./pages/Admin/AdminOrders'));
 const AdminCoupons = lazy(() => import('./pages/Admin/AdminCoupons'));
 const AdminUsers = lazy(() => import('./pages/Admin/AdminUsers'));
+const AdminReports = lazy(() => import('./pages/Admin/AdminReports'));
+const SellerDashboard = lazy(() => import('./pages/Seller/SellerDashboard'));
 
 const ScrollTop = () => {
   const { pathname } = useLocation();
@@ -44,6 +48,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/product/:slug" element={<ProductDetails />} />
           <Route path="/cart" element={<Cart />} />
+          <Route path="/compare" element={<Compare />} />
           <Route element={<PrivateRoute />}>
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/orders" element={<MyOrders />} />
@@ -51,6 +56,7 @@ export default function App() {
             <Route path="/orders/:id/invoice" element={<Invoice />} />
             <Route path="/wishlist" element={<Wishlist />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/checkout/success" element={<CheckoutSuccess />} />
             <Route path="/checkout/cancel" element={<CheckoutCancel />} />
           </Route>
@@ -61,6 +67,12 @@ export default function App() {
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/coupons" element={<AdminCoupons />} />
             <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/reports" element={<AdminReports />} />
+          </Route>
+          <Route element={<SellerRoute />}>
+            <Route path="/seller" element={<SellerDashboard />} />
+            <Route path="/seller/products" element={<AdminProducts seller />} />
+            <Route path="/seller/orders" element={<AdminOrders seller />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

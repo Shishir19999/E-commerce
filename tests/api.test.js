@@ -173,7 +173,7 @@ test("orders (mock path): server pricing, stock decrement, validation, listing, 
 
   const res = await api().post(`${V1}/orders`).set(h).send({ items: [{ product: pid, quantity: 2, price: 0.01 }], shippingAddress: "1 Test Street" });
   assert.equal(res.status, 201);
-  assert.equal(res.body.order.total, 21);
+  assert.equal(res.body.order.total, 22.68);
   assert.equal(res.body.order.payment.status, "paid (mock)");
   assert.equal((await productModel.findById(pid)).quantity, 8);
   assert.equal((await api().get(`${V1}/orders/mine`).set(h)).body.orders.length, 1);
@@ -238,7 +238,7 @@ test("payments: Stripe checkout built from server-side prices; webhook marks pai
     let order = await orderModel.findById(res.body.orderId);
     assert.equal(order.payment.status, "pending (stripe)");
     assert.equal(order.payment.method, "stripe");
-    assert.equal(order.total, 31.5);
+    assert.equal(order.total, 34.02);
     assert.equal(await stock(), 7);
 
     const sign = (payload) => real.webhooks.generateTestHeaderString({ payload, secret: "whsec_test_secret" });

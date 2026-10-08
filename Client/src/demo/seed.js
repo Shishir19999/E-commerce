@@ -1,9 +1,11 @@
 // Seed data for the browser-only demo. Pure functions: no DOM, no import.meta.
 import { makeArt } from '../lib/art.js';
+import { SHIPPING_METHODS, orderTotal, taxAmount } from '../lib/pricing.js';
 
 export const DEMO_PASSWORD = 'Password123!';
 export const DEMO_ACCOUNTS = [
   { role: 'Customer', email: 'user@example.com', password: DEMO_PASSWORD },
+  { role: 'Seller', email: 'seller@example.com', password: DEMO_PASSWORD },
   { role: 'Admin', email: 'admin@example.com', password: DEMO_PASSWORD },
 ];
 
@@ -113,6 +115,8 @@ export function buildSeed(passwordHash, now = Date.now()) {
   const users = [
     { _id: hex('a1', 1), name: 'Demo Admin', email: 'admin@example.com', phone: '555-0100', address: '1 Market Street, Springfield', role: 1 },
     { _id: hex('a1', 2), name: 'Demo Customer', email: 'user@example.com', phone: '555-0101', address: '24 Maple Avenue, Springfield', role: 0 },
+    { _id: hex('a1', 90), name: 'Demo Seller', email: 'seller@example.com', phone: '555-0110', address: '8 Dock Lane, Springfield', role: 2, storeName: 'Northwind Goods' },
+    { _id: hex('a1', 91), name: 'Orchard Owner', email: 'orchard@example.com', phone: '555-0111', address: '3 Orchard Way, Fairview', role: 2, storeName: 'Orchard & Co' },
   ];
   FIRST.forEach((f, i) =>
     users.push({
@@ -124,7 +128,18 @@ export function buildSeed(passwordHash, now = Date.now()) {
       role: 0,
     })
   );
-  users.forEach((u, i) => Object.assign(u, { passwordHash, wishlist: [], tokenVersion: 0, createdAt: new Date(now - (60 - i * 3) * DAY).toISOString() }));
+  users.forEach((u, i) =>
+    Object.assign(u, { passwordHash, wishlist: [], addresses: [], storeName: u.storeName || '', sellerRequest: false, tokenVersion: 0, createdAt: new Date(now - Math.max(2, 60 - i * 3) * DAY).toISOString() })
+  );
+  const demoUser = users.find((u) => u.email === 'user@example.com');
+  demoUser.addresses = [
+    { _id: hex('a2', 1), label: 'Home', name: 'Demo Customer', phone: '555-0101', street: '24 Maple Avenue', city: 'Springfield', zip: '62704', isDefault: true },
+    { _id: hex('a2', 2), label: 'Work', name: 'Demo Customer', phone: '555-0101', street: '1 Market Street, Floor 4', city: 'Springfield', zip: '62701', isDefault: false },
+  ];
+  // a pending seller application for the admin to review
+  users.find((u) => u.email === 'noah.kim@example.com').sellerRequest = true;
+  users.find((u) => u.email === 'noah.kim@example.com').storeName = 'Kim Gadgets';
+  const sellers = users.filter((u) => u.role === 2);
 
   // categories + products
   const categories = [];
@@ -152,6 +167,7 @@ export function buildSeed(passwordHash, now = Date.now()) {
         rating: 0,
         numReviews: 0,
         sold: 0,
+        seller: pn % 3 === 1 ? hex('a1', 90) : pn % 3 === 2 ? hex('a1', 91) : null,
         createdAt: new Date(now - (90 - pn) * DAY).toISOString(),
         updatedAt: new Date(now - (90 - pn) * DAY).toISOString(),
       });
@@ -160,6 +176,7 @@ export function buildSeed(passwordHash, now = Date.now()) {
 
   // reviews
   const customers = users.filter((u) => u.role === 0);
+  void sellers;
   const reviews = [];
   products.forEach((p) => {
     const n = between(0, 5);
@@ -174,6 +191,7 @@ export function buildSeed(passwordHash, now = Date.now()) {
         rating,
         comment: pick(COMMENTS[rating]),
         verified: rand() > 0.35,
+        helpful: customers.filter((c) => c._id !== u._id && rand() > 0.82).map((c) => c._id),
         createdAt: new Date(now - between(1, 80) * DAY).toISOString(),
       });
     });
@@ -193,19 +211,32 @@ export function buildSeed(passwordHash, now = Date.now()) {
   const notes = ['Order placed', 'Being packed at the warehouse', 'Handed to the carrier', 'Delivered to the address'];
   const orders = [];
   for (let i = 0; i < 44; i++) {
-    const u = pick(customers);
-    const age = Math.floor(Math.pow(rand(), 1.4) * 45);
+    const u = i % 6 === 0 ? customers[0] : pick(customers);
+    let age = Math.floor(Math.pow(rand(), 1.4) * 45);
+    if (i === 6) age = 6;
+    if (i === 12) age = 9;
+    if (i === 18) age = 22;
     const createdAt = now - age * DAY - between(0, 80000) * 1000;
     const picks = [...products].sort(() => rand() - 0.5).slice(0, between(1, 3));
-    const items = picks.map((p) => ({ product: p._id, name: p.name, price: p.price, quantity: between(1, 2), variant: p.variants[0]?.options[0] || '', photo: p.photo }));
+    const items = picks.map((p) => ({ product: p._id, name: p.name, price: p.price, quantity: between(1, 2), variant: p.variants[0]?.options[0] || '', photo: p.photo, seller: p.seller }));
     const subtotal = Math.round(items.reduce((s, it) => s + it.price * it.quantity, 0) * 100) / 100;
     const shippingMethod = pick(['standard', 'standard', 'express', 'pickup']);
-    const shipping = shippingMethod === 'express' ? 12.99 : shippingMethod === 'standard' && subtotal < 50 ? 4.99 : 0;
+    const shipping = shippingMethod === 'express' ? SHIPPING_METHODS.express.cost : shippingMethod === 'standard' && subtotal < 50 ? SHIPPING_METHODS.standard.cost : 0;
+    const tax = taxAmount(subtotal, 0);
     let status = age > 12 ? pick(['Delivered', 'Delivered', 'Delivered', 'Cancelled']) : age > 4 ? pick(['Shipped', 'Delivered', 'Processing']) : pick(['Not Processed', 'Processing', 'Not Processed']);
     if (i < 3) status = 'Not Processed';
+    if (i === 6 || i === 12 || i === 18) status = 'Delivered';
+    if (i === 30) status = 'Processing';
     const steps = status === 'Cancelled' ? [{ status: 'Not Processed', note: notes[0] }, { status: 'Cancelled', note: 'Cancelled at the customer request' }] : flow.slice(0, flow.indexOf(status) + 1).map((s, k) => ({ status: s, note: notes[k] }));
     const timeline = steps.map((s, k) => ({ ...s, at: new Date(Math.min(now, createdAt + k * 0.8 * DAY)).toISOString() }));
-    if (status !== 'Cancelled') items.forEach((it) => (products.find((p) => p._id === it.product).sold += it.quantity));
+    // i = 12: open return request; i = 18: an approved return (refunded, stock back)
+    const returnRequest = i === 12 ? { status: 'requested', reason: 'The size is too small for me.', requestedAt: new Date(now - 2 * DAY).toISOString() } : i === 18 ? { status: 'approved', reason: 'Arrived with a scratch on the side.', requestedAt: new Date(now - 14 * DAY).toISOString(), resolvedAt: new Date(now - 12 * DAY).toISOString(), note: 'Refund issued' } : undefined;
+    if (returnRequest) timeline.push({ status: 'Return requested', note: returnRequest.reason, at: returnRequest.requestedAt });
+    if (i === 18) {
+      status = 'Returned';
+      timeline.push({ status: 'Returned', note: 'Refund issued', at: returnRequest.resolvedAt });
+    }
+    if (status !== 'Cancelled' && status !== 'Returned') items.forEach((it) => (products.find((p) => p._id === it.product).sold += it.quantity));
     orders.push({
       _id: hex('f1', i + 1),
       user: u._id,
@@ -213,20 +244,37 @@ export function buildSeed(passwordHash, now = Date.now()) {
       subtotal,
       discount: 0,
       shipping,
+      tax,
       couponCode: '',
       shippingMethod,
-      total: Math.round((subtotal + shipping) * 100) / 100,
+      trackingNumber: ['Shipped', 'Delivered', 'Returned'].includes(status) ? `TRK-${String(480000 + i * 37)}` : '',
+      total: orderTotal(subtotal, 0, shipping, tax),
       shippingAddress: `${u.name}, ${u.address} - ${u.phone}`,
       status,
       timeline,
-      payment: { method: 'mock', status: status === 'Cancelled' ? 'refunded (mock)' : 'paid (mock)' },
+      payment: { method: 'mock', status: status === 'Cancelled' || status === 'Returned' ? 'refunded (mock)' : 'paid (mock)' },
+      ...(returnRequest ? { returnRequest } : {}),
       createdAt: new Date(createdAt).toISOString(),
       updatedAt: timeline[timeline.length - 1].at,
     });
   }
   orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  return { version: 1, seededAt: new Date(now).toISOString(), users, categories, products, reviews, coupons, orders };
+  // starter notifications so the bell is not empty
+  const n = (user, type, message, link, ago, read = false) => ({ _id: hex('g1', notifications.length + 1), user, type, message, link, read, createdAt: new Date(now - ago * 3600000).toISOString(), updatedAt: new Date(now - ago * 3600000).toISOString() });
+  const notifications = [];
+  const sid = (o) => String(o._id).slice(-6).toUpperCase();
+  const mineDemo = orders.filter((o) => o.user === demoUser._id).slice(0, 3);
+  mineDemo.forEach((o, k) => notifications.push(n(demoUser._id, 'order', `Order #${sid(o)} is now ${o.status === 'Not Processed' ? 'placed' : o.status.toLowerCase()}`, `/orders/${o._id}`, 3 + k * 20, k > 0)));
+  const sellerA = orders.filter((o) => o.items.some((i) => i.seller === hex('a1', 90))).slice(0, 3);
+  sellerA.forEach((o, k) => notifications.push(n(hex('a1', 90), 'order', `New order #${sid(o)}: items to ship`, '/seller/orders', 5 + k * 30, k > 0)));
+  notifications.push(n(hex('a1', 90), 'stock', 'Low stock: check your products with 10 or fewer units', '/seller/products', 40));
+  const openReturn = orders.find((o) => o.returnRequest?.status === 'requested');
+  if (openReturn) notifications.push(n(hex('a1', 1), 'return', `Return requested for order #${sid(openReturn)}`, '/admin/orders', 8));
+  notifications.push(n(hex('a1', 1), 'seller', 'Noah Kim applied to become a seller (Kim Gadgets)', '/admin/users', 12));
+  notifications.push(n(hex('a1', 1), 'stock', 'Low stock: Terra Ceramic Planter has 3 left', '/admin/products', 30, true));
+
+  return { version: 2, seededAt: new Date(now).toISOString(), users, categories, products, reviews, coupons, orders, notifications };
 }
 
 export function recalcRating(product, reviews) {

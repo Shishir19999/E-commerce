@@ -7,11 +7,13 @@ import API, { DEMO, errMsg } from '../api/client';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useUI } from '../context/UIContext';
-import { SHIPPING_METHODS, shippingCost } from '../lib/pricing';
-import { money } from '../lib/format';
+import { SHIPPING_METHODS, deliveryWindow, shippingCost, taxAmount } from '../lib/pricing';
+import { formatAddress } from '../lib/rules';
+import { money, shortDate } from '../lib/format';
 import { formatCard, validateAddress, validateCard } from '../lib/checkout';
 
 const STEPS = ['Address', 'Shipping', 'Payment'];
+const NEW = 'new';
 
 const Checkout = () => {
   const { items, subtotal, discount, coupon, clear } = useCart();
@@ -19,27 +21,70 @@ const Checkout = () => {
   const { toast } = useUI();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [book, setBook] = useState(null); // saved addresses (null while loading)
+  const [pick, setPick] = useState(NEW);
+  const [saveIt, setSaveIt] = useState(false);
   const [addr, setAddr] = useState({ name: user?.name || '', phone: user?.phone || '', street: user?.address || '', city: '', zip: '' });
   const [method, setMethod] = useState('standard');
   const [card, setCard] = useState({ number: '', exp: '', cvc: '', holder: user?.name || '' });
   const [errs, setErrs] = useState({});
   const [mode, setMode] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [today] = useState(() => Date.now());
 
   useEffect(() => {
     API.get('/api/v1/payments/config').then((r) => setMode(r.data.mode)).catch(() => setMode('mock'));
+    API.get('/api/v1/auth/addresses')
+      .then((r) => {
+        const list = r.data.addresses || [];
+        setBook(list);
+        const def = list.find((a) => a.isDefault) || list[0];
+        if (def) {
+          setPick(def._id);
+          setAddr({ name: def.name, phone: def.phone, street: def.street, city: def.city, zip: def.zip });
+        }
+      })
+      .catch(() => setBook([]));
   }, []);
 
   if (items.length === 0)
     return <Layout title="Checkout"><div className="container page"><State icon="🛒" title="Your cart is empty" action={<Link to="/shop" className="btn primary">Start shopping</Link>} /></div></Layout>;
 
-  const shipping = shippingCost(method, Math.max(0, subtotal - discount));
+  const taxable = Math.max(0, subtotal - discount);
+  const shipping = shippingCost(method, taxable);
+  const tax = taxAmount(subtotal, discount);
+  const grand = Math.round((taxable + shipping + tax) * 100) / 100;
   const stripe = mode === 'stripe' && !DEMO;
+  const eta = (id) => {
+    const w = deliveryWindow(id, today);
+    return w ? (id === 'pickup' ? `Ready ${shortDate(w[0])}` : `Arrives ${shortDate(w[0])} to ${shortDate(w[1])}`) : '';
+  };
 
-  const next = () => {
+  const choose = (id) => {
+    setPick(id);
+    setErrs({});
+    if (id === NEW) return setAddr({ name: user?.name || '', phone: user?.phone || '', street: '', city: '', zip: '' });
+    const a = book.find((x) => x._id === id);
+    if (a) setAddr({ name: a.name, phone: a.phone, street: a.street, city: a.city, zip: a.zip });
+  };
+
+  const next = async () => {
     const e = step === 0 ? validateAddress(addr) : step === 2 && !stripe ? validateCard(card) : {};
     setErrs(e);
-    if (Object.keys(e).length === 0) setStep(step + 1);
+    if (Object.keys(e).length) return;
+    if (step === 0 && pick === NEW && saveIt) {
+      try {
+        const r = await API.post('/api/v1/auth/addresses', { ...addr, label: '' });
+        const saved = r.data.addresses[r.data.addresses.length - 1];
+        setBook(r.data.addresses);
+        setPick(saved._id);
+        setSaveIt(false);
+        toast.success('Address saved to your address book');
+      } catch (err) {
+        toast.error(errMsg(err));
+      }
+    }
+    setStep(step + 1);
   };
 
   const place = async () => {
@@ -50,7 +95,7 @@ const Checkout = () => {
     try {
       const res = await API.post('/api/v1/payments/checkout', {
         items: items.map((i) => ({ product: i.product, quantity: i.quantity, variant: i.variant || '' })),
-        shippingAddress: `${addr.name}, ${addr.street}, ${addr.city} ${addr.zip}, Tel ${addr.phone}`,
+        shippingAddress: formatAddress(addr),
         shippingMethod: method,
         couponCode: coupon?.code || '',
       });
@@ -71,7 +116,7 @@ const Checkout = () => {
   const f = (obj, set, k, label, props = {}) => (
     <div className="field">
       <label htmlFor={`f-${k}`}>{label}</label>
-      <input id={`f-${k}`} className="input" value={obj[k]} aria-invalid={Boolean(errs[k])} aria-describedby={errs[k] ? `f-${k}-e` : undefined} onChange={(e) => set({ ...obj, [k]: props.format ? props.format(e.target.value) : e.target.value })} {...props.input} />
+      <input id={`f-${k}`} className="input" value={obj[k]} aria-invalid={Boolean(errs[k])} aria-describedby={errs[k] ? `f-${k}-e` : undefined} onChange={(e) => { if (k in addr && obj === addr) setPick(NEW); set({ ...obj, [k]: props.format ? props.format(e.target.value) : e.target.value }); }} {...props.input} />
       {errs[k] && <span className="err" id={`f-${k}-e`} role="alert">{errs[k]}</span>}
     </div>
   );
@@ -88,9 +133,25 @@ const Checkout = () => {
             {step === 0 && (
               <form onSubmit={(e) => { e.preventDefault(); next(); }} noValidate>
                 <h2>Delivery address</h2>
+                {book?.length > 0 && (
+                  <fieldset className="addr-pick">
+                    <legend className="small"><b>Your saved addresses</b></legend>
+                    {book.map((a) => (
+                      <label key={a._id} className="radio-card">
+                        <input type="radio" name="addr" checked={pick === a._id} onChange={() => choose(a._id)} />
+                        <span className="grow"><b>{a.label || 'Address'}</b>{a.isDefault && <span className="pill info" style={{ marginLeft: 8 }}>Default</span>}<br /><span className="muted small">{a.name}, {a.street}, {a.city} {a.zip}</span></span>
+                      </label>
+                    ))}
+                    <label className="radio-card">
+                      <input type="radio" name="addr" checked={pick === NEW} onChange={() => choose(NEW)} />
+                      <span className="grow"><b>Use a different address</b></span>
+                    </label>
+                  </fieldset>
+                )}
                 <div className="grid2">{f(addr, setAddr, 'name', 'Full name', { input: { autoComplete: 'name' } })}{f(addr, setAddr, 'phone', 'Phone', { input: { autoComplete: 'tel' } })}</div>
                 {f(addr, setAddr, 'street', 'Street address', { input: { autoComplete: 'street-address' } })}
                 <div className="grid2">{f(addr, setAddr, 'city', 'City', { input: { autoComplete: 'address-level2' } })}{f(addr, setAddr, 'zip', 'Postal code', { input: { autoComplete: 'postal-code' } })}</div>
+                {pick === NEW && <label className="row" style={{ marginBottom: 14 }}><input type="checkbox" checked={saveIt} onChange={(e) => setSaveIt(e.target.checked)} /> Save this address to my address book</label>}
                 <button className="btn primary">Continue to shipping</button>
               </form>
             )}
@@ -98,11 +159,11 @@ const Checkout = () => {
               <div>
                 <h2>Shipping method</h2>
                 {Object.values(SHIPPING_METHODS).map((m) => {
-                  const c = shippingCost(m.id, Math.max(0, subtotal - discount));
+                  const c = shippingCost(m.id, taxable);
                   return (
                     <label key={m.id} className="radio-card">
                       <input type="radio" name="ship" checked={method === m.id} onChange={() => setMethod(m.id)} />
-                      <span className="grow"><b>{m.label}</b><br /><span className="muted small">{m.eta}</span></span>
+                      <span className="grow"><b>{m.label}</b><br /><span className="muted small">{m.eta} &middot; {eta(m.id)}</span></span>
                       <b>{c ? money(c) : 'Free'}</b>
                     </label>
                   );
@@ -134,10 +195,10 @@ const Checkout = () => {
                 <h2>Review and place order</h2>
                 <div className="grid2">
                   <div><h3>Deliver to</h3><p className="muted">{addr.name}<br />{addr.street}<br />{addr.city} {addr.zip}<br />{addr.phone}</p><button className="btn sm" onClick={() => setStep(0)}>Edit</button></div>
-                  <div><h3>Shipping</h3><p className="muted">{SHIPPING_METHODS[method].label}, {SHIPPING_METHODS[method].eta}</p><button className="btn sm" onClick={() => setStep(1)}>Edit</button></div>
+                  <div><h3>Shipping</h3><p className="muted">{SHIPPING_METHODS[method].label}, {SHIPPING_METHODS[method].eta}<br />{eta(method)}</p><button className="btn sm" onClick={() => setStep(1)}>Edit</button></div>
                 </div>
                 <p className="muted small">{stripe ? 'You will pay on Stripe (test mode).' : `Mock payment with card ending ${card.number.replace(/\D/g, '').slice(-4)}.`}</p>
-                <div className="row"><button className="btn" onClick={() => setStep(2)}>Back</button><button className="btn primary" disabled={busy || !mode} onClick={place}>{busy ? 'Placing order…' : stripe ? 'Pay with Stripe' : `Place order (${money(Math.max(0, subtotal - discount) + shipping)})`}</button></div>
+                <div className="row"><button className="btn" onClick={() => setStep(2)}>Back</button><button className="btn primary" disabled={busy || !mode} onClick={place}>{busy ? 'Placing order…' : stripe ? 'Pay with Stripe' : `Place order (${money(grand)})`}</button></div>
               </div>
             )}
           </div>

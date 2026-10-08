@@ -24,6 +24,7 @@ test('seed: 40+ products, categories, demo logins work', async () => {
   assert.ok((await api.get('/api/v1/categories')).data.categories.length >= 6);
   assert.equal((await login(api, 'user@example.com')).user.role, 0);
   assert.equal((await login(api, 'admin@example.com')).user.role, 1);
+  assert.equal((await login(api, 'seller@example.com')).user.role, 2);
   await fails(api.post('/api/v1/auth/login', { email: 'user@example.com', password: 'nope' }), 401);
 });
 
@@ -52,7 +53,8 @@ test('orders: totals, coupon, stock, cancel restock, auth guards', async () => {
   assert.equal(r.data.mode, 'mock');
   assert.equal(o.subtotal, Math.round(p.price * 2 * 100) / 100);
   assert.ok(o.discount > 0 && o.shipping === 12.99);
-  assert.equal(o.total, Math.round((o.subtotal - o.discount + o.shipping) * 100) / 100);
+  assert.equal(o.tax, Math.round((o.subtotal - o.discount) * 8) / 100);
+  assert.equal(o.total, Math.round((o.subtotal - o.discount + o.shipping + o.tax) * 100) / 100);
   const after = (await api.get(`/api/v1/products/${p.slug}`)).data.product;
   assert.equal(after.quantity, p.quantity - 2);
   await fails(api.post('/api/v1/payments/checkout', { ...body, items: [{ product: p._id, quantity: 100000 }] }), 400);

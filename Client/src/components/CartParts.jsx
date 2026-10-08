@@ -4,9 +4,10 @@ import { lineKey, useCart } from '../context/CartContext';
 import { useUI } from '../context/UIContext';
 import { Img, State } from './Common';
 import { money } from '../lib/format';
+import { taxAmount } from '../lib/pricing';
 
-export const CartLines = () => {
-  const { items, setQty, remove } = useCart();
+export const CartLines = ({ saveLater = false }) => {
+  const { items, setQty, remove, saveForLater } = useCart();
   return items.map((i) => {
     const k = lineKey(i);
     return (
@@ -21,6 +22,7 @@ export const CartLines = () => {
               <span aria-live="polite">{i.quantity}</span>
               <button aria-label="Increase quantity" disabled={i.quantity >= (i.stock || 100)} onClick={() => setQty(k, i.quantity + 1)}>+</button>
             </span>
+            {saveLater && <button className="btn sm ghost" onClick={() => saveForLater(k)} aria-label={`Save ${i.name} for later`}>Save for later</button>}
             <button className="btn sm ghost danger" onClick={() => remove(k)} aria-label={`Remove ${i.name}`}>Remove</button>
           </div>
         </div>
@@ -64,12 +66,14 @@ export const CouponBox = () => {
 
 export const CartSummary = ({ shipping = 0, showShipping = false }) => {
   const { subtotal, discount } = useCart();
-  const total = Math.max(0, subtotal - discount) + shipping;
+  const tax = taxAmount(subtotal, discount);
+  const total = Math.round((Math.max(0, subtotal - discount) + shipping + tax) * 100) / 100;
   return (
     <div className="sum">
       <div><span>Subtotal</span><span>{money(subtotal)}</span></div>
       {discount > 0 && <div><span>Discount</span><span>-{money(discount)}</span></div>}
       {showShipping && <div><span>Shipping</span><span>{shipping ? money(shipping) : 'Free'}</span></div>}
+      <div><span>{showShipping ? 'Sales tax (8%)' : 'Estimated tax (8%)'}</span><span>{money(tax)}</span></div>
       <div className="total"><span>{showShipping ? 'Total' : 'Estimated total'}</span><span>{money(total)}</span></div>
     </div>
   );

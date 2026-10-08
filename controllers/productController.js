@@ -11,6 +11,10 @@ const removeUpload = (photo) => {
   }
 };
 
+// admins manage everything; sellers only their own products
+const ownsProduct = (user, product) => user.role === 1 || (user.role === 2 && product.seller && String(product.seller) === String(user._id));
+export const SELLER_FIELDS = "name storeName";
+
 const isHttpUrl = (v) => {
   try {
     const u = new URL(v);
@@ -104,6 +108,8 @@ export const createProduct = async (req, res) => {
       return fail(res, error);
     }
     data.slug = await uniqueSlug(data.name);
+    if (req.user.role === 2) delete data.featured; // only admins feature products
+    if (req.user.role === 2) data.seller = req.user._id; // sellers always own what they create
     const product = await productModel.create(data);
     res.status(201).send({ success: true, message: "Product created", product });
   } catch (error) {
@@ -125,11 +131,16 @@ export const updateProduct = async (req, res) => {
       cleanup();
       return fail(res, "Product not found", 404);
     }
+    if (!ownsProduct(req.user, existing)) {
+      cleanup();
+      return fail(res, "You can only manage your own products", 403);
+    }
     const { error, data } = await parseBody(req.body || {}, req.file, true);
     if (error) {
       cleanup();
       return fail(res, error);
     }
+    if (req.user.role === 2) delete data.featured;
     if (data.name && data.name !== existing.name) data.slug = await uniqueSlug(data.name, id);
     const oldPhoto = existing.photo;
     const product = await productModel.findByIdAndUpdate(id, data, { returnDocument: 'after' });
@@ -145,8 +156,10 @@ export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
     if (!isId(id)) return fail(res, "Invalid product id");
+    const found = await productModel.findById(id);
+    if (!found) return fail(res, "Product not found", 404);
+    if (!ownsProduct(req.user, found)) return fail(res, "You can only manage your own products", 403);
     const product = await productModel.findByIdAndDelete(id);
-    if (!product) return fail(res, "Product not found", 404);
     removeUpload(product.photo);
     res.send({ success: true, message: "Product deleted" });
   } catch (error) {
@@ -183,6 +196,10 @@ export const listProducts = async (req, res) => {
     if (Number.isFinite(minRating) && minRating > 0) filter.rating = { $gte: minRating };
     if (req.query.inStock === "true") filter.quantity = { $gt: 0 };
     if (req.query.featured === "true") filter.featured = true;
+    if (req.query.seller) {
+      if (req.query.seller === "store") filter.seller = null;
+      else if (isId(String(req.query.seller))) filter.seller = req.query.seller;
+    }
     if (req.query.ids) {
       const ids = String(req.query.ids).split(",").filter(isId).slice(0, 50);
       filter._id = { $in: ids };
@@ -198,7 +215,7 @@ export const listProducts = async (req, res) => {
     const sort = sorts[req.query.sort] || sorts.newest;
     const [total, products, top] = await Promise.all([
       productModel.countDocuments(filter),
-      productModel.find(filter).populate("category", "name slug").sort(sort).skip((page - 1) * limit).limit(limit),
+      productModel.find(filter).populate("category", "name slug").populate("seller", SELLER_FIELDS).sort(sort).skip((page - 1) * limit).limit(limit),
       productModel.findOne().sort({ price: -1 }).select("price"),
     ]);
     res.send({
@@ -220,7 +237,8 @@ export const getProductBySlug = async (req, res) => {
   try {
     const product = await productModel
       .findOne({ slug: String(req.params.slug).toLowerCase() })
-      .populate("category", "name slug");
+      .populate("category", "name slug")
+      .populate("seller", SELLER_FIELDS);
     if (!product) return fail(res, "Product not found", 404);
     res.send({ success: true, message: "Product fetched", product });
   } catch (error) {
@@ -236,6 +254,7 @@ export const relatedProducts = async (req, res) => {
     const products = await productModel
       .find({ category: product.category, _id: { $ne: product._id } })
       .populate("category", "name slug")
+      .populate("seller", SELLER_FIELDS)
       .sort({ rating: -1, sold: -1 })
       .limit(4);
     res.send({ success: true, message: "Related products fetched", products });

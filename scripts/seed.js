@@ -10,6 +10,8 @@ import productModel from "../models/productModel.js";
 import orderModel from "../models/orderModel.js";
 import reviewModel from "../models/reviewModel.js";
 import couponModel from "../models/couponModel.js";
+import notificationModel from "../models/notificationModel.js";
+import { SHIPPING_METHODS, orderTotal, taxAmount } from "../helpers/pricing.js";
 import { slugify } from "../helpers/validate.js";
 
 dotenv.config({ quiet: true });
@@ -64,6 +66,26 @@ for (const u of userDefs) {
   users.push(r);
 }
 
+// sellers (role 2) and one pending seller application
+const sellerDefs = [
+  { name: "Demo Seller", email: "seller@example.com", storeName: "Northwind Goods" },
+  { name: "Orchard Owner", email: "orchard@example.com", storeName: "Orchard & Co" },
+];
+const sellers = [];
+for (const s of sellerDefs) {
+  sellers.push(await userModel.findOneAndUpdate(
+    { email: s.email },
+    { $set: { name: s.name, role: 2, storeName: s.storeName, sellerRequest: false }, $setOnInsert: { password: hash, phone: "98" + faker.string.numeric(8), address: `${faker.location.streetAddress()}, ${faker.location.city()}` } },
+    { upsert: true, returnDocument: "after" }
+  ));
+}
+await userModel.updateOne({ _id: users[3]._id }, { $set: { sellerRequest: true, storeName: "Corner Crafts" } });
+// the demo customer has a small address book
+await userModel.updateOne({ email: "user@example.com" }, { $set: { addresses: [
+  { label: "Home", name: "Demo User", phone: "9800000001", street: "24 Maple Avenue", city: "Springfield", zip: "62704", isDefault: true },
+  { label: "Work", name: "Demo User", phone: "9800000001", street: "1 Market Street, Floor 4", city: "Springfield", zip: "62701", isDefault: false },
+] } });
+
 // categories + products
 const catIds = {};
 for (const name of Object.keys(catalog)) {
@@ -93,7 +115,7 @@ for (let i = 0; i < 60; i++) {
   const u = users[faker.number.int({ min: 1, max: users.length - 1 })];
   const picks = faker.helpers.arrayElements(prodDefs, faker.number.int({ min: 1, max: 4 }));
   const items = picks.map((p) => ({ prod: p, name: p.name, price: p.price, quantity: faker.number.int({ min: 1, max: 3 }) }));
-  const total = Math.round(items.reduce((s, x) => s + x.price * x.quantity, 0) * 100) / 100;
+  const total = Math.round(items.reduce((s, x) => s + x.price * x.quantity, 0) * 100) / 100; // item subtotal (shipping and tax are added on insert)
   const createdAt = new Date(REF - faker.number.int({ min: 1, max: 120 }) * DAY - faker.number.int({ min: 0, max: 80000 }) * 1000);
   orderDocs.push({ _id: new mongoose.Types.ObjectId(("e0c0" + String(i).padStart(4, "0")).padEnd(24, "0")), u, items, total, createdAt, status: faker.helpers.arrayElement(statuses) });
 }
@@ -101,6 +123,7 @@ const sold = {};
 for (const o of orderDocs) if (o.status !== "Cancelled") for (const it of o.items) sold[it.prod.slug] = (sold[it.prod.slug] || 0) + it.quantity;
 
 const pid = {};
+const sellerOf = {};
 const variantsFor = (cat) =>
   cat === "Fashion" ? [{ name: "Size", options: ["S", "M", "L", "XL"] }, { name: "Color", options: ["Black", "Navy", "Sand"] }]
   : cat === "Electronics" ? [{ name: "Color", options: ["Black", "Silver", "White"] }]
@@ -116,12 +139,14 @@ for (const p of prodDefs) {
         photo: img(0), images: [img(1), img(2), img(3)],
         variants: variantsFor(p.cat), featured: n % 6 === 0, compareAtPrice: n % 4 === 0 ? Math.round(p.price * 1.25 * 100) / 100 : 0,
         quantity: Math.max(0, p.stock - (sold[p.slug] || 0)), sold: sold[p.slug] || 0,
+        seller: n % 3 === 1 ? sellers[0]._id : n % 3 === 2 ? sellers[1]._id : null, // every third product is sold by the store itself
       },
       $setOnInsert: { slug: p.slug },
     },
     { upsert: true, returnDocument: 'after' }
   );
   pid[p.slug] = r._id;
+  sellerOf[p.slug] = r.seller;
   n++;
 }
 
@@ -151,16 +176,57 @@ for (const a of aggs) await productModel.updateOne({ _id: a._id }, { rating: Mat
 
 if (reset) await orderModel.deleteMany({});
 else await orderModel.collection.deleteMany({ _id: { $in: orderDocs.map((o) => o._id) } });
-await orderModel.collection.insertMany(orderDocs.map((o) => ({
-  _id: o._id, user: o.u._id,
-  items: o.items.map((x) => ({ _id: new mongoose.Types.ObjectId(), product: pid[x.prod.slug], name: x.name, price: x.price, quantity: x.quantity, variant: "", photo: `https://picsum.photos/seed/${x.prod.slug}-0/600/600` })),
-  subtotal: o.total, discount: 0, shipping: 0, total: o.total, shippingAddress: o.u.address, status: o.status,
-  timeline: timelineFor(o.status, o.createdAt),
-  payment: { method: "mock", status: o.status === "Cancelled" ? "refunded (mock)" : "paid (mock)" },
-  createdAt: o.createdAt, updatedAt: new Date(o.createdAt.getTime() + 3600000), __v: 0,
-})));
+// two delivered orders get return requests: one open, one approved (refunded)
+const delivered = orderDocs.filter((o) => o.status === "Delivered");
+const openReturn = delivered[0], doneReturn = delivered[1];
+// the demo customer owns two delivered orders (one can be returned right away)
+delivered[2].u = users[1];
+delivered[3].u = users[1];
+// these four are recent (relative to today) so the return window is open when you try it
+[delivered[0], delivered[1], delivered[2], delivered[3]].forEach((o, i) => (o.createdAt = new Date(Date.now() - (9 - i * 2) * DAY)));
+await orderModel.collection.insertMany(orderDocs.map((o) => {
+  const tax = taxAmount(o.total, 0);
+  const shipping = o.total >= 50 ? 0 : SHIPPING_METHODS.standard.cost;
+  const status = o === doneReturn ? "Returned" : o.status;
+  const timeline = timelineFor(o.status, o.createdAt);
+  const last = timeline[timeline.length - 1].at;
+  let returnRequest;
+  if (o === openReturn) {
+    returnRequest = { status: "requested", reason: "The size is too small for me.", requestedAt: new Date(last.getTime() + 86400000) };
+    timeline.push({ status: "Return requested", note: returnRequest.reason, at: returnRequest.requestedAt });
+  } else if (o === doneReturn) {
+    returnRequest = { status: "approved", reason: "Arrived with a scratch on the side.", requestedAt: new Date(last.getTime() + 86400000), resolvedAt: new Date(last.getTime() + 2 * 86400000), note: "Refund issued" };
+    timeline.push({ status: "Return requested", note: returnRequest.reason, at: returnRequest.requestedAt }, { status: "Returned", note: "Refund issued", at: returnRequest.resolvedAt });
+  }
+  return {
+    _id: o._id, user: o.u._id,
+    items: o.items.map((x) => ({ _id: new mongoose.Types.ObjectId(), product: pid[x.prod.slug], name: x.name, price: x.price, quantity: x.quantity, variant: "", photo: `https://picsum.photos/seed/${x.prod.slug}-0/600/600`, seller: sellerOf[x.prod.slug] || null })),
+    subtotal: o.total, discount: 0, shipping, tax, total: orderTotal(o.total, 0, shipping, tax), shippingMethod: "standard", shippingAddress: o.u.address, status,
+    trackingNumber: ["Shipped", "Delivered"].includes(o.status) ? `TRK-${String(500000 + Number(o._id.toString().slice(-4)))}` : "",
+    timeline,
+    ...(returnRequest ? { returnRequest } : {}),
+    payment: { method: "mock", status: o.status === "Cancelled" || status === "Returned" ? "refunded (mock)" : "paid (mock)" },
+    createdAt: o.createdAt, updatedAt: new Date(o.createdAt.getTime() + 3600000), __v: 0,
+  };
+}));
+// a Returned order no longer counts as sold stock
+const dr = doneReturn.items;
+for (const it of dr) await productModel.updateOne({ slug: it.prod.slug }, { $inc: { sold: -it.quantity, quantity: it.quantity } });
+
+// starter notifications (replaced on every run)
+await notificationModel.deleteMany({});
+const demoUser = users.find((u) => u.email === "user@example.com");
+const adminUser = users.find((u) => u.email === "admin@example.com");
+const sid = (o) => String(o._id).slice(-6).toUpperCase();
+await notificationModel.insertMany([
+  { user: demoUser._id, type: "order", message: "Welcome to ShopLane! Order updates will show up here.", link: "/orders" },
+  { user: adminUser._id, type: "return", message: `Return requested for order #${sid(openReturn)}`, link: "/admin/orders" },
+  { user: adminUser._id, type: "seller", message: "Corner Crafts applied to become a seller", link: "/admin/users" },
+  { user: sellers[0]._id, type: "order", message: "New orders are waiting to be shipped", link: "/seller/orders" },
+  { user: sellers[0]._id, type: "stock", message: "Low stock: check your products with 10 or fewer units", link: "/seller/products" },
+]);
 
 console.log(`Seeded: ${await userModel.countDocuments()} users, ${await categoryModel.countDocuments()} categories, ${await productModel.countDocuments()} products, ${await orderModel.countDocuments()} orders`);
 console.log("Coupons: WELCOME10, SAVE5 (min $40), BIGSPEND25 (min $150)");
-console.log(`Demo logins (password ${PASSWORD}): admin@example.com (admin), manager@example.com (admin), user@example.com`);
+console.log(`Logins (password ${PASSWORD}): admin@example.com and manager@example.com (admins), seller@example.com and orchard@example.com (sellers), user@example.com (customer)`);
 await mongoose.disconnect();

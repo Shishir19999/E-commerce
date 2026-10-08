@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { FaHeart, FaRegHeart } from 'react-icons/fa';
+import { FaHeart, FaRegHeart, FaBalanceScale, FaThumbsUp, FaRegThumbsUp } from 'react-icons/fa';
 import Layout from '../components/Layout';
 import ProductCard from '../components/ProductCard';
 import { ErrorState, Img, Skeleton, Stars } from '../components/Common';
@@ -11,7 +11,8 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useUI } from '../context/UIContext';
 import { useWishlist } from '../context/WishlistContext';
-import { discountPct, money, shortDate } from '../lib/format';
+import { useCompare } from '../context/CompareContext';
+import { discountPct, money, sellerName, shortDate } from '../lib/format';
 import { pushRecent } from '../lib/recent';
 
 const Gallery = ({ product }) => {
@@ -25,7 +26,11 @@ const Gallery = ({ product }) => {
   };
   return (
     <div>
-      <div className={`zoom ${zoom ? 'on' : ''}`} onMouseMove={move} onMouseEnter={() => setZoom(true)} onMouseLeave={() => setZoom(false)} onClick={() => setZoom((z) => !z)} title="Hover or tap to zoom">
+      <div
+        className={`zoom ${zoom ? 'on' : ''}`} role="button" tabIndex={0} aria-pressed={zoom} aria-label="Zoom product image"
+        onMouseMove={move} onMouseEnter={() => setZoom(true)} onMouseLeave={() => setZoom(false)} onClick={() => setZoom((z) => !z)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setZoom((z) => !z); } }} title="Hover, tap or press Enter to zoom"
+      >
         <Img photo={imgs[i]} name={product.name} loading="eager" />
       </div>
       {imgs.length > 1 && (
@@ -72,7 +77,17 @@ const ReviewForm = ({ product, mine, onSaved }) => {
 const Reviews = ({ product, onChange }) => {
   const { user, token } = useAuth();
   const { toast, confirm } = useUI();
-  const { data, reload } = useFetch(() => API.get('/api/v1/reviews', { params: { product: product._id } }).then((r) => r.data.reviews), [product._id]);
+  const [sort, setSort] = useState('helpful');
+  const { data, reload } = useFetch(() => API.get('/api/v1/reviews', { params: { product: product._id, sort } }).then((r) => r.data.reviews), [product._id, sort]);
+  const vote = async (r) => {
+    if (!token) return toast('Sign in to mark reviews as helpful');
+    try {
+      await API.post(`/api/v1/reviews/${r._id}/helpful`);
+      reload();
+    } catch (x) {
+      toast.error(errMsg(x));
+    }
+  };
   const mine = data?.find((r) => r.user === user?._id);
   const refresh = async () => {
     reload();
@@ -92,14 +107,32 @@ const Reviews = ({ product, onChange }) => {
 
   return (
     <section aria-labelledby="rev-h" className="stack">
-      <h2 id="rev-h">Customer reviews</h2>
+      <div className="row between">
+        <h2 id="rev-h" style={{ margin: 0 }}>Customer reviews</h2>
+        {data?.length > 1 && (
+          <span className="row" style={{ gap: 8 }}>
+            <label htmlFor="rev-sort" className="small muted">Sort by</label>
+            <select id="rev-sort" className="input" style={{ width: 'auto' }} value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="helpful">Most helpful</option><option value="newest">Newest</option><option value="highest">Highest rated</option><option value="lowest">Lowest rated</option>
+            </select>
+          </span>
+        )}
+      </div>
       <div className="layout2">
         <div className="stack">
           {!data ? <Skeleton h={80} /> : data.length === 0 ? <p className="muted">No reviews yet. Be the first to share your thoughts.</p> : data.map((r) => (
             <article key={r._id} className="card">
               <div className="row between"><span><Stars value={r.rating} /> <b>{r.userName}</b>{r.verified && <span className="pill success" style={{ marginLeft: 8 }}>Verified purchase</span>}</span><span className="muted small">{shortDate(r.createdAt)}</span></div>
               {r.comment && <p style={{ margin: '8px 0 0' }}>{r.comment}</p>}
-              {(r.user === user?._id || user?.role === 1) && <button className="btn sm ghost danger" onClick={() => del(r)}>Delete</button>}
+              <div className="row" style={{ marginTop: 8 }}>
+                {r.user !== user?._id && (
+                  <button className="btn sm" aria-pressed={r.helpful?.includes(user?._id)} onClick={() => vote(r)} aria-label={`Mark review by ${r.userName} as helpful (${r.helpful?.length || 0} so far)`}>
+                    {r.helpful?.includes(user?._id) ? <FaThumbsUp /> : <FaRegThumbsUp />} Helpful ({r.helpful?.length || 0})
+                  </button>
+                )}
+                {r.user === user?._id && (r.helpful?.length || 0) > 0 && <span className="muted small">{r.helpful.length} found this helpful</span>}
+                {(r.user === user?._id || user?.role === 1) && <button className="btn sm ghost danger" onClick={() => del(r)}>Delete</button>}
+              </div>
             </article>
           ))}
         </div>
@@ -128,6 +161,7 @@ const ProductPage = ({ slug }) => {
   const navigate = useNavigate();
   const { add, setOpen } = useCart();
   const { ids, toggle } = useWishlist();
+  const compare = useCompare();
   const { toast } = useUI();
   const { data: product, loading, error, reload } = useFetch(() => API.get(`/api/v1/products/${slug}`).then((r) => r.data.product), [slug]);
   const related = useFetch(() => API.get(`/api/v1/products/${slug}/related`).then((r) => r.data.products), [slug]);
@@ -166,6 +200,7 @@ const ProductPage = ({ slug }) => {
           <div className="stack">
             <h1 style={{ fontSize: '2rem' }}>{product.name}</h1>
             <div className="row"><Stars value={product.rating} size={18} /><a href="#rev-h" className="small">{product.numReviews} review{product.numReviews === 1 ? '' : 's'}</a><span className="muted small">{product.sold} sold</span></div>
+            <p className="small muted" style={{ margin: 0 }}>Sold by {product.seller ? <Link to={`/shop?seller=${product.seller._id}`}>{sellerName(product.seller)}</Link> : <b>ShopLane</b>}</p>
             <p style={{ fontSize: '1.7rem' }} className="price">{money(product.price)}{off > 0 && <><s>{money(product.compareAtPrice)}</s> <span className="pill sale">Save {off}%</span></>}</p>
             <p>{product.description}</p>
             {(product.variants || []).map((v) => (
@@ -188,8 +223,11 @@ const ProductPage = ({ slug }) => {
               <button className="btn" aria-pressed={wished} onClick={async () => { if (!(await toggle(product._id))) { toast('Sign in to save items to your wishlist'); navigate('/login', { state: { from: `/product/${product.slug}` } }); } }}>
                 {wished ? <FaHeart color="#e11d48" /> : <FaRegHeart />} {wished ? 'Saved' : 'Wishlist'}
               </button>
+              <button className="btn" aria-pressed={compare.ids.includes(product._id)} onClick={() => { const r = compare.toggle(product._id); if (!r.ok) toast.error(r.reason); else toast(r.added ? 'Added to compare' : 'Removed from compare'); }}>
+                <FaBalanceScale /> {compare.ids.includes(product._id) ? 'In compare' : 'Compare'}
+              </button>
             </div>
-            <p className="small muted">Free standard shipping over $50. 30-day returns.</p>
+            <p className="small muted">Free standard shipping over $50. 30-day returns on delivered orders. 8% sales tax added at checkout.</p>
           </div>
         </div>
         <Reviews product={product} onChange={reload} />

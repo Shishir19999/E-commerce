@@ -13,3 +13,10 @@ export const AdminRoute = () => {
   if (!token) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   return isAdmin ? <Outlet /> : <Navigate to="/" replace />;
 };
+
+export const SellerRoute = () => {
+  const { token, isSeller } = useAuth();
+  const location = useLocation();
+  if (!token) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  return isSeller ? <Outlet /> : <Navigate to="/profile" replace />;
+};

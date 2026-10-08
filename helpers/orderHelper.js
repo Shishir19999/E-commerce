@@ -1,11 +1,13 @@
 import productModel from "../models/productModel.js";
 import couponModel from "../models/couponModel.js";
 import { fail, isId, isStr } from "./validate.js";
-import { SHIPPING_METHODS, evalCoupon, orderTotal, shippingCost } from "./pricing.js";
+import { SHIPPING_METHODS, evalCoupon, orderTotal, shippingCost, taxAmount } from "./pricing.js";
+import { LOW_STOCK } from "./rules.js";
 
 // Validates items, prices them from the DB and atomically reserves stock per item.
 // Returns { lines, total, rollback } or { error: {message, status} }. Prices never come from the client.
 export const reserveItems = async (items) => {
+  const lowStock = []; // products that just dropped to the low-stock level
   const reserved = []; // for manual rollback (no transactions on a standalone Mongo)
   const rollback = () =>
     Promise.all(reserved.map(([id, q]) => productModel.updateOne({ _id: id }, { $inc: { quantity: q, sold: -q } })));
@@ -44,10 +46,11 @@ export const reserveItems = async (items) => {
         };
       }
       reserved.push([productId, qty]);
-      lines.push({ product: product._id, name: product.name, price: product.price, quantity: qty, variant, photo: product.photo || "" });
+      lines.push({ product: product._id, name: product.name, price: product.price, quantity: qty, variant, photo: product.photo || "", seller: product.seller || null });
+      if (product.quantity <= LOW_STOCK && product.quantity + qty > LOW_STOCK) lowStock.push(product);
       total += product.price * qty;
     }
-    return { lines, total: Math.round(total * 100) / 100, rollback };
+    return { lines, total: Math.round(total * 100) / 100, rollback, lowStock };
   } catch (e) {
     await rollback();
     throw e;
@@ -61,8 +64,8 @@ export const restock = (order) =>
 export const checkShipping = (res, shippingAddress) =>
   isStr(shippingAddress, 5, 300) ? null : fail(res, "Shipping address is required (5-300 chars)");
 
-// Applies shipping method + coupon on top of the server-priced subtotal.
-// Returns { error } or { subtotal, shipping, discount, total, couponCode, shippingMethod }
+// Applies shipping method + coupon + tax on top of the server-priced subtotal.
+// Returns { error } or { subtotal, shipping, discount, tax, total, couponCode, shippingMethod }
 export const finalizePricing = async (subtotal, { shippingMethod, couponCode } = {}) => {
   if (shippingMethod !== undefined && shippingMethod !== "" && !SHIPPING_METHODS[shippingMethod])
     return { error: { message: "Unknown shipping method", status: 400 } };
@@ -77,7 +80,8 @@ export const finalizePricing = async (subtotal, { shippingMethod, couponCode } =
     code = coupon.code;
   }
   const shipping = shippingCost(shippingMethod, subtotal - discount);
-  return { subtotal, shipping, discount, total: orderTotal(subtotal, discount, shipping), couponCode: code, shippingMethod: shippingMethod || "" };
+  const tax = taxAmount(subtotal, discount);
+  return { subtotal, shipping, discount, tax, total: orderTotal(subtotal, discount, shipping, tax), couponCode: code, shippingMethod: shippingMethod || "" };
 };
 
 export const redeemCoupon = (code) => code && couponModel.updateOne({ code }, { $inc: { used: 1 } });

@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
     setAuth({ user: null, token: '' });
   };
 
-  return <AuthContext.Provider value={{ ...auth, login, logout, setUser, isAdmin: auth.user?.role === 1 }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ ...auth, login, logout, setUser, isAdmin: auth.user?.role === 1, isSeller: auth.user?.role === 2 }}>{children}</AuthContext.Provider>;
 };
 
 // eslint-disable-next-line react-refresh/only-export-components
