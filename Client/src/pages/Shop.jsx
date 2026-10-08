@@ -6,7 +6,7 @@ import ProductCard from '../components/ProductCard';
 import { ErrorState, Pager, ProductSkeletons, State } from '../components/Common';
 import { useFetch } from '../lib/hooks';
 import API from '../api/client';
-import { money } from '../lib/format';
+import { money, sellerName } from '../lib/format';
 
 const SORTS = [['newest', 'Newest'], ['popular', 'Most popular'], ['rating', 'Top rated'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low'], ['name', 'Name A-Z']];
 const PAGE_SIZE = 12;
@@ -22,7 +22,7 @@ const Shop = () => {
   const q = {
     search: sp.get('search') || '', category: sp.get('category') || '', sort: sp.get('sort') || 'newest',
     maxPrice: sp.get('maxPrice') || '', minRating: sp.get('minRating') || '', inStock: sp.get('inStock') === 'true',
-    featured: sp.get('featured') === 'true', page: Math.max(1, Number(sp.get('page')) || 1),
+    featured: sp.get('featured') === 'true', seller: sp.get('seller') || '', page: Math.max(1, Number(sp.get('page')) || 1),
   };
   const set = (patch) => {
     const next = new URLSearchParams(sp);
@@ -42,11 +42,12 @@ const Shop = () => {
   };
   const sliderVal = drag ?? q.maxPrice;
 
-  const params = { search: q.search, category: q.category, sort: q.sort, maxPrice: q.maxPrice, minRating: q.minRating, inStock: q.inStock || undefined, featured: q.featured || undefined, page: q.page, limit: PAGE_SIZE };
+  const params = { search: q.search, category: q.category, sort: q.sort, maxPrice: q.maxPrice, minRating: q.minRating, inStock: q.inStock || undefined, featured: q.featured || undefined, seller: q.seller || undefined, page: q.page, limit: PAGE_SIZE };
   const { data, loading, error, reload } = useFetch(() => API.get('/api/v1/products', { params }).then((r) => r.data), [JSON.stringify(params)]);
   const ceiling = data?.maxPrice || 1000;
   const activeCat = cats.data?.find((c) => c.slug === q.category || c._id === q.category);
-  const filtersOn = q.category || q.maxPrice || q.minRating || q.inStock || q.featured || q.search;
+  const filtersOn = q.category || q.maxPrice || q.minRating || q.inStock || q.featured || q.search || q.seller;
+  const sellerLabel = q.seller === 'store' ? 'ShopLane' : data?.products?.[0]?.seller ? sellerName(data.products[0].seller) : 'this seller';
 
   const setViewMode = (v) => {
     setView(v);
@@ -58,6 +59,7 @@ const Shop = () => {
     <Layout title={q.search ? `Search: ${q.search}` : activeCat ? activeCat.name : 'Shop'} description="Filter by category, price and rating. Sort and search across the whole catalogue.">
       <div className="container page">
         <h1 style={{ fontSize: '1.9rem' }}>{q.search ? <>Results for “{q.search}”</> : activeCat ? activeCat.name : 'All products'}</h1>
+        {q.seller && <p className="row" role="status"><span className="pill info">Sold by {sellerLabel}</span> <button className="btn sm ghost" onClick={() => set({ seller: '' })}>Show all sellers</button></p>}
         <div className="shop">
           <aside className={`filters card ${showFilters ? 'open' : ''}`} aria-label="Filters">
             <h4>Category</h4>

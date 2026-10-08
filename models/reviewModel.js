@@ -9,6 +9,8 @@ const reviewSchema = new mongoose.Schema(
     comment: { type: String, trim: true, maxlength: 1000, default: "" },
     // true when the author has a non-cancelled order containing the product
     verified: { type: Boolean, default: false },
+    // users who marked the review as helpful
+    helpful: { type: [mongoose.ObjectId], default: [] },
   },
   { timestamps: true }
 );

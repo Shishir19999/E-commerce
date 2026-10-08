@@ -38,6 +38,7 @@ export const checkout = async (req, res) => {
           : [
               ...order.items.map((l) => ({ quantity: l.quantity, price_data: { currency, unit_amount: cents(l.price), product_data: { name: l.name } } })),
               ...(pricing.shipping > 0 ? [{ quantity: 1, price_data: { currency, unit_amount: cents(pricing.shipping), product_data: { name: "Shipping" } } }] : []),
+              ...(pricing.tax > 0 ? [{ quantity: 1, price_data: { currency, unit_amount: cents(pricing.tax), product_data: { name: "Sales tax" } } }] : []),
             ];
       const session = await stripe.checkout.sessions.create({
         mode: "payment",

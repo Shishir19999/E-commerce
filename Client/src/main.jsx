@@ -8,8 +8,9 @@ import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { UIProvider } from './context/UIContext';
 import { WishlistProvider } from './context/WishlistContext';
+import { CompareProvider } from './context/CompareContext';
 
-// The static demo is served from a sub-path on GitHub Pages: a hash router keeps deep links and refreshes working there.
+// The static live preview is served from a sub-path on GitHub Pages: a hash router keeps deep links and refreshes working there.
 // eslint-disable-next-line react-refresh/only-export-components
 const Router = DEMO ? HashRouter : BrowserRouter;
 
@@ -20,7 +21,9 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <WishlistProvider>
             <CartProvider>
-              <App />
+              <CompareProvider>
+                <App />
+              </CompareProvider>
             </CartProvider>
           </WishlistProvider>
         </AuthProvider>

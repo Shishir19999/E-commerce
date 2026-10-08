@@ -20,6 +20,8 @@ const productSchema = new mongoose.Schema(
       default: [],
     },
     featured: { type: Boolean, default: false },
+    // owning seller (role 2); null = sold by the store itself
+    seller: { type: mongoose.ObjectId, ref: "users", default: null, index: true },
     // maintained by the review controller
     rating: { type: Number, default: 0, min: 0, max: 5 },
     numReviews: { type: Number, default: 0, min: 0 },

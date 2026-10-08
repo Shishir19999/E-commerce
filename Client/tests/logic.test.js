@@ -38,3 +38,37 @@ test('parseVariants', () => {
   assert.deepEqual(parseVariants('Color: Black, White | Size: S, M'), [{ name: 'Color', options: ['Black', 'White'] }, { name: 'Size', options: ['S', 'M'] }]);
   assert.deepEqual(parseVariants(''), []);
 });
+
+import { toCsv } from '../src/lib/csv.js';
+import { deliveryWindow, taxAmount, orderTotal, sellerEarnings } from '../src/lib/pricing.js';
+import { returnEligibility, sellerStatusError } from '../src/lib/rules.js';
+
+test('toCsv: quoting, newlines and spreadsheet formula guard', () => {
+  const csv = toCsv([{ a: 'x,y', b: '=SUM(1)', c: 'say "hi"', d: 5, e: 'line\nbreak', f: null }], [['A', (r) => r.a], ['B', (r) => r.b], ['C', (r) => r.c], ['D', (r) => r.d], ['E', (r) => r.e], ['F', (r) => r.f]]);
+  assert.equal(csv, 'A,B,C,D,E,F\r\n"x,y",\'=SUM(1),"say ""hi""",5,"line\nbreak",\r\n');
+  assert.equal(toCsv([{ n: -3 }], [['N', (r) => r.n]]), 'N\r\n-3\r\n'); // numbers are never treated as formulas
+});
+
+test('pricing: tax, totals, earnings, delivery window', () => {
+  assert.equal(taxAmount(27, 0), 2.16);
+  assert.equal(taxAmount(30, 3), 2.16);
+  assert.equal(orderTotal(30, 3, 4.99, 2.16), 34.15);
+  assert.equal(sellerEarnings(40), 36);
+  const [a, b] = deliveryWindow('standard', '2026-01-01T00:00:00Z');
+  assert.equal(a.toISOString().slice(0, 10), '2026-01-04');
+  assert.equal(b.toISOString().slice(0, 10), '2026-01-06');
+  assert.equal(deliveryWindow('teleport', Date.now()), null);
+});
+
+test('rules: return window and seller status moves', () => {
+  const now = Date.parse('2026-03-01T00:00:00Z');
+  const o = (over) => ({ status: 'Delivered', timeline: [{ status: 'Delivered', at: '2026-02-20T00:00:00Z' }], ...over });
+  assert.equal(returnEligibility(o(), now).ok, true);
+  assert.equal(returnEligibility(o({ status: 'Shipped' }), now).ok, false);
+  assert.equal(returnEligibility(o({ returnRequest: { status: 'rejected' } }), now).ok, false);
+  assert.match(returnEligibility(o({ timeline: [{ status: 'Delivered', at: '2026-01-01T00:00:00Z' }] }), now).reason, /window/);
+  assert.equal(sellerStatusError('Processing', 'Shipped'), '');
+  assert.ok(sellerStatusError('Shipped', 'Processing'));
+  assert.ok(sellerStatusError('Processing', 'Cancelled'));
+  assert.ok(sellerStatusError('Cancelled', 'Shipped'));
+});

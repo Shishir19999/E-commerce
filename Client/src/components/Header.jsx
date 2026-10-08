@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FaShoppingBag, FaSearch, FaMoon, FaSun, FaUser, FaBars, FaHeart } from 'react-icons/fa';
+import { FaShoppingBag, FaSearch, FaMoon, FaSun, FaUser, FaBars, FaHeart, FaBalanceScale } from 'react-icons/fa';
 import API from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useUI } from '../context/UIContext';
 import { useWishlist } from '../context/WishlistContext';
+import { useCompare } from '../context/CompareContext';
+import { NotificationBell } from './NotificationBell';
 import { Img } from './Common';
 import { useDebounced } from '../lib/hooks';
 import { money } from '../lib/format';
@@ -85,7 +87,7 @@ const SearchBox = () => {
 };
 
 const UserMenu = () => {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isSeller } = useAuth();
   const { toast } = useUI();
   const loc = useLocation();
   const [openAt, setOpenAt] = useState(null); // the page the menu was opened on; navigating closes it
@@ -106,10 +108,14 @@ const UserMenu = () => {
         <div className="menu-pop" role="menu">
           <span className="small muted" style={{ padding: '6px 12px' }}>Signed in as<br /><b style={{ color: 'var(--text)' }}>{user.name}</b></span>
           <hr />
+          <span className="pill info" style={{ margin: '0 12px 4px', width: 'fit-content' }}>{isAdmin ? 'Admin' : isSeller ? 'Seller' : 'Customer'}</span>
+          {isAdmin && <Link to="/admin" role="menuitem">Admin dashboard</Link>}
+          {isSeller && <Link to="/seller" role="menuitem">Seller dashboard</Link>}
           <Link to="/orders" role="menuitem">My orders</Link>
           <Link to="/wishlist" role="menuitem">Wishlist</Link>
-          <Link to="/profile" role="menuitem">Profile</Link>
-          {isAdmin && <Link to="/admin" role="menuitem">Admin dashboard</Link>}
+          <Link to="/compare" role="menuitem">Compare</Link>
+          <Link to="/notifications" role="menuitem">Notifications</Link>
+          <Link to="/profile" role="menuitem">Profile and addresses</Link>
           <hr />
           <button role="menuitem" onClick={async () => { await logout(); toast('Signed out'); navigate('/'); }}>Sign out</button>
         </div>
@@ -121,6 +127,7 @@ const UserMenu = () => {
 const Header = () => {
   const { count, setOpen } = useCart();
   const { ids } = useWishlist();
+  const compare = useCompare();
   const { theme, setTheme } = useUI();
   const loc = useLocation();
   const [navAt, setNavAt] = useState(null);
@@ -137,12 +144,15 @@ const Header = () => {
           <NavLink to="/about">About</NavLink>
           <NavLink to="/contact">Contact</NavLink>
           <NavLink to="/wishlist" className="m-only">Wishlist</NavLink>
+          <NavLink to="/compare" className="m-only">Compare</NavLink>
         </nav>
         <SearchBox />
         <span className="spacer" />
         <button className="icon-btn" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
           {theme === 'dark' ? <FaSun /> : <FaMoon />}
         </button>
+        <Link to="/compare" className="icon-btn wish-link" aria-label={`Compare (${compare.ids.length})`}><FaBalanceScale />{compare.ids.length > 0 && <span className="badge">{compare.ids.length}</span>}</Link>
+        <NotificationBell />
         <Link to="/wishlist" className="icon-btn wish-link" aria-label={`Wishlist (${ids.length})`}><FaHeart />{ids.length > 0 && <span className="badge">{ids.length}</span>}</Link>
         <button className="icon-btn" aria-label={`Open cart (${count} items)`} onClick={() => setOpen(true)}><FaShoppingBag />{count > 0 && <span className="badge">{count}</span>}</button>
         <UserMenu />

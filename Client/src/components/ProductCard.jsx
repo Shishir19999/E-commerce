@@ -1,15 +1,18 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { FaHeart, FaRegHeart } from 'react-icons/fa';
+import { FaHeart, FaRegHeart, FaBalanceScale } from 'react-icons/fa';
 import { Img, Reveal, Stars } from './Common';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
+import { useCompare } from '../context/CompareContext';
 import { useUI } from '../context/UIContext';
-import { discountPct, money } from '../lib/format';
+import { discountPct, money, sellerName } from '../lib/format';
 
 const ProductCard = ({ p, index = 0, list = false }) => {
   const { add, setOpen } = useCart();
   const { ids, toggle } = useWishlist();
   const { toast } = useUI();
+  const compare = useCompare();
+  const comparing = compare.ids.includes(p._id);
   const navigate = useNavigate();
   const wished = ids.includes(p._id);
   const off = discountPct(p);
@@ -29,10 +32,19 @@ const ProductCard = ({ p, index = 0, list = false }) => {
     }
   };
 
+  const cmp = () => {
+    const r = compare.toggle(p._id);
+    if (!r.ok) toast.error(r.reason);
+    else toast(r.added ? `${p.name} added to compare` : `${p.name} removed from compare`);
+  };
+
   return (
     <Reveal as="article" delay={(index % 4) * 70} className="pcard">
       <button className="wish" aria-pressed={wished} aria-label={wished ? `Remove ${p.name} from wishlist` : `Save ${p.name} to wishlist`} onClick={wish}>
         {wished ? <FaHeart /> : <FaRegHeart />}
+      </button>
+      <button className="wish cmp" aria-pressed={comparing} aria-label={comparing ? `Remove ${p.name} from compare` : `Compare ${p.name}`} onClick={cmp}>
+        <FaBalanceScale />
       </button>
       <Link to={`/product/${p.slug}`} className="media" aria-label={p.name}>
         <Img photo={p.photo} name={p.name} />
@@ -42,7 +54,7 @@ const ProductCard = ({ p, index = 0, list = false }) => {
         </span>
       </Link>
       <div className="body">
-        {p.category?.name && <span className="cat">{p.category.name}</span>}
+        {p.category?.name && <span className="cat">{p.category.name}{p.seller && <> &middot; {sellerName(p.seller)}</>}</span>}
         <Link to={`/product/${p.slug}`} className="name">{p.name}</Link>
         <span className="row small muted" style={{ gap: 6 }}>
           <Stars value={p.rating} /> {p.numReviews > 0 ? `(${p.numReviews})` : 'No reviews'}

@@ -71,6 +71,7 @@ test("pricing helpers: shipping, coupons and totals", () => {
   assert.equal(evalCoupon({ ...pct, usageLimit: 3, used: 3 }, 100).ok, false);
   assert.equal(evalCoupon({ ...pct, type: "fixed", value: 500 }, 100).discount, 100); // never more than the subtotal
   assert.equal(orderTotal(100, 10, 4.99), 94.99);
+  assert.equal(orderTotal(100, 10, 4.99, 7.2), 102.19);
   assert.equal(orderTotal(10, 50, 0), 0);
 });
 
@@ -161,7 +162,8 @@ test("coupons + shipping: admin CRUD, validation, server-side totals, usage limi
   assert.equal(o.subtotal, 30);
   assert.equal(o.discount, 3);
   assert.equal(o.shipping, 4.99); // 27 after discount is below the free-shipping threshold
-  assert.equal(o.total, 31.99);
+  assert.equal(o.tax, 2.16);
+  assert.equal(o.total, 34.15);
   assert.equal(o.items[0].variant, "Blue");
   assert.equal(o.timeline.length, 1);
   assert.equal((await couponModel.findOne({ code: "SAVE10" })).used, 1);
@@ -177,7 +179,7 @@ test("orders: detail access, timeline, owner cancel restocks", async () => {
   const before = (await productModel.findById(pid)).quantity;
   const res = await api().post(`${V1}/orders`).set(bearer(userToken)).send({ items: [{ product: pid, quantity: 2 }], shippingAddress: ADDR, shippingMethod: "express" });
   assert.equal(res.status, 201);
-  assert.equal(res.body.order.total, 32.99);
+  assert.equal(res.body.order.total, 34.59);
   const id = res.body.order._id;
   assert.equal((await api().get(`${V1}/orders/${id}`).set(bearer(userToken))).status, 200);
   assert.equal((await api().get(`${V1}/orders/${id}`).set(bearer(adminToken))).body.order.user.email, "user@example.com");

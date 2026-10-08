@@ -1,19 +1,32 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import Layout from '../../components/Layout';
+import { useUI } from '../../context/UIContext';
+import { downloadCsv, toCsv } from '../../lib/csv';
+import { errMsg } from '../../api/client';
+import { money } from '../../lib/format';
 
-export const AdminLayout = ({ title, actions, children }) => (
-  <Layout title={`Admin: ${title}`}>
+export const AdminLayout = ({ title, actions, children, seller = false }) => (
+  <Layout title={`${seller ? 'Seller' : 'Admin'}: ${title}`}>
     <div className="container page">
       <div className="admin">
-        <nav aria-label="Admin">
-          <NavLink to="/admin" end>Dashboard</NavLink>
-          <NavLink to="/admin/products">Products</NavLink>
-          <NavLink to="/admin/categories">Categories</NavLink>
-          <NavLink to="/admin/orders">Orders</NavLink>
-          <NavLink to="/admin/coupons">Coupons</NavLink>
-          <NavLink to="/admin/users">Users</NavLink>
-        </nav>
+        {seller ? (
+          <nav aria-label="Seller">
+            <NavLink to="/seller" end>Dashboard</NavLink>
+            <NavLink to="/seller/products">My products</NavLink>
+            <NavLink to="/seller/orders">Orders</NavLink>
+          </nav>
+        ) : (
+          <nav aria-label="Admin">
+            <NavLink to="/admin" end>Dashboard</NavLink>
+            <NavLink to="/admin/reports">Reports</NavLink>
+            <NavLink to="/admin/products">Products</NavLink>
+            <NavLink to="/admin/categories">Categories</NavLink>
+            <NavLink to="/admin/orders">Orders</NavLink>
+            <NavLink to="/admin/coupons">Coupons</NavLink>
+            <NavLink to="/admin/users">Users</NavLink>
+          </nav>
+        )}
         <div style={{ minWidth: 0 }}>
           <div className="row between" style={{ marginBottom: 14 }}><h1 style={{ fontSize: '1.7rem', margin: 0 }}>{title}</h1>{actions}</div>
           {children}
@@ -22,6 +35,42 @@ export const AdminLayout = ({ title, actions, children }) => (
     </div>
   </Layout>
 );
+
+// Downloads the rows returned by load() as a CSV file
+export const ExportButton = ({ filename, load, columns, label = 'Export CSV' }) => {
+  const { toast } = useUI();
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const rows = await load();
+      downloadCsv(filename, toCsv(rows, columns));
+      toast.success(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'}`);
+    } catch (e) {
+      toast.error(errMsg(e, 'Export failed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <button type="button" className="btn sm" disabled={busy} onClick={run}>{busy ? 'Exporting…' : label}</button>;
+};
+
+// Ranked horizontal bars (a readable alternative to a pie chart); the numbers are always printed next to the bars.
+export const HBars = ({ rows, getLabel, getValue, format = money, empty = 'Nothing to show yet.' }) => {
+  const max = Math.max(1, ...rows.map(getValue));
+  if (!rows.length) return <p className="muted">{empty}</p>;
+  return (
+    <ul className="hbars">
+      {rows.map((r, i) => (
+        <li key={i}>
+          <span className="lbl">{getLabel(r)}</span>
+          <span className="track" aria-hidden="true"><span className="fill" style={{ width: `${(getValue(r) / max) * 100}%` }} /></span>
+          <b>{format(getValue(r))}</b>
+        </li>
+      ))}
+    </ul>
+  );
+};
 
 export const Modal = ({ title, onClose, wide, children }) => {
   const ref = useRef(null);

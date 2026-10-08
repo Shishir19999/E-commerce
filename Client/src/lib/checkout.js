@@ -15,15 +15,8 @@ const luhn = (digits) => {
   return sum % 10 === 0;
 };
 
-export const validateAddress = (a) => {
-  const e = {};
-  if (a.name.trim().length < 2) e.name = 'Enter your full name';
-  if (a.phone.replace(/\D/g, '').length < 7) e.phone = 'Enter a phone number with at least 7 digits';
-  if (a.street.trim().length < 3) e.street = 'Enter your street address';
-  if (a.city.trim().length < 2) e.city = 'Enter your city';
-  if (a.zip.trim().length < 3) e.zip = 'Enter your postal code';
-  return e;
-};
+// address rules are shared with the API (see rules.js)
+export { validateAddress } from './rules.js';
 
 export const validateCard = (c, now = new Date()) => {
   const e = {};

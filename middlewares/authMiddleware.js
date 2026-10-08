@@ -52,3 +52,20 @@ export const isAdmin=async(req,res,next)=>{
     }
     next();
 }
+
+
+//seller access (role 2)
+export const isSeller=async(req,res,next)=>{
+    if(!req.user || req.user.role!==2){
+        return res.status(403).send({success:false,message:"Seller account required"})
+    }
+    next();
+}
+
+//admin or seller (product and order management)
+export const isStaff=async(req,res,next)=>{
+    if(!req.user || (req.user.role!==1 && req.user.role!==2)){
+        return res.status(401).send({success:false,message:"Unauthorized Access"})
+    }
+    next();
+}

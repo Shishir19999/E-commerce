@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 
-export const ORDER_STATUSES = ["Not Processed", "Processing", "Shipped", "Delivered", "Cancelled"];
+import { ORDER_STATUSES } from "../helpers/rules.js";
+
+export { ORDER_STATUSES };
 
 const orderSchema = new mongoose.Schema(
   {
@@ -13,11 +15,13 @@ const orderSchema = new mongoose.Schema(
         quantity: { type: Number, required: true, min: 1 },
         variant: { type: String, default: "" },
         photo: { type: String, default: "" },
+        seller: { type: mongoose.ObjectId, default: null }, // snapshot of the product owner
       },
     ],
     subtotal: { type: Number, default: 0, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
     shipping: { type: Number, default: 0, min: 0 },
+    tax: { type: Number, default: 0, min: 0 },
     couponCode: { type: String, default: "" },
     shippingMethod: { type: String, default: "" },
     total: { type: Number, required: true, min: 0 },
@@ -27,6 +31,15 @@ const orderSchema = new mongoose.Schema(
     timeline: {
       type: [{ _id: false, status: String, note: { type: String, default: "" }, at: { type: Date, default: Date.now } }],
       default: [],
+    },
+    trackingNumber: { type: String, default: "", maxlength: 40 },
+    // customer return request: status requested -> approved (order becomes Returned, stock back) or rejected
+    returnRequest: {
+      status: { type: String, enum: ["requested", "approved", "rejected"] },
+      reason: { type: String, maxlength: 300 },
+      requestedAt: Date,
+      resolvedAt: Date,
+      note: { type: String, maxlength: 200 },
     },
     // method "mock": no real payment processed. method "stripe": pending -> "paid (stripe)" via webhook.
     payment: {

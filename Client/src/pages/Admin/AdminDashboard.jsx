@@ -16,15 +16,22 @@ const AdminDashboard = () => {
   );
   const day = (d) => d.date.slice(5);
   return (
-    <AdminLayout title="Dashboard" actions={sel}>
+    <AdminLayout title="Dashboard" actions={<span className="row"><Link className="btn sm" to="/admin/reports">Full reports</Link>{sel}</span>}>
       {loading && !s ? <Skeleton h={300} /> : error ? <ErrorState message={error} onRetry={reload} /> : (
         <div className="stack">
           <div className="kpis">
-            <div className="card kpi"><b>{money(s.revenue)}</b><span>Revenue (excl. cancelled)</span></div>
+            <div className="card kpi"><b>{money(s.revenue)}</b><span>Revenue (excl. cancelled and returned)</span></div>
             <div className="card kpi"><b>{s.orders}</b><span>Orders</span></div>
             <div className="card kpi"><b>{s.users}</b><span>Customers</span></div>
             <div className="card kpi"><b>{s.products}</b><span>Products</span></div>
           </div>
+          {(s.returnsOpen > 0 || s.sellerApplications > 0) && (
+            <div className="card row" role="status" aria-label="Needs your attention">
+              <b>Needs attention:</b>
+              {s.returnsOpen > 0 && <Link to="/admin/orders" className="pill warn">{s.returnsOpen} open return request{s.returnsOpen === 1 ? '' : 's'}</Link>}
+              {s.sellerApplications > 0 && <Link to="/admin/users" className="pill warn">{s.sellerApplications} seller application{s.sellerApplications === 1 ? '' : 's'}</Link>}
+            </div>
+          )}
           <div className="grid2">
             <div className="card"><h3>Revenue per day</h3><BarChart data={s.series} getValue={(d) => d.revenue} getLabel={day} format={(v) => `$${Math.round(v)}`} label="Revenue per day" /></div>
             <div className="card"><h3>Orders per day</h3><BarChart data={s.series} getValue={(d) => d.orders} getLabel={day} label="Orders per day" /></div>

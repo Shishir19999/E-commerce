@@ -6,23 +6,21 @@ import { DEMO, resetDemo } from '../api/client';
 import { useUI } from '../context/UIContext';
 import { DEMO_ACCOUNTS } from '../demo/seed.js';
 
-const DemoBanner = () => {
+const PreviewBanner = () => {
   const { toast, confirm } = useUI();
   const reset = async () => {
-    if (!(await confirm({ title: 'Reset demo data?', message: 'Products, orders, accounts and your cart go back to the starting state.', confirmLabel: 'Reset', danger: true }))) return;
+    if (!(await confirm({ title: 'Reset the live preview?', message: 'Products, orders, accounts and your cart go back to the starting state.', confirmLabel: 'Reset', danger: true }))) return;
     await resetDemo();
     try {
-      localStorage.removeItem('cart');
-      localStorage.removeItem('auth');
-      localStorage.removeItem('recent');
+      ['cart', 'saved', 'auth', 'recent', 'compare'].forEach((k) => localStorage.removeItem(k));
     } catch { /* storage unavailable */ }
-    toast.success('Demo data reset');
+    toast.success('Live preview reset');
     setTimeout(() => window.location.reload(), 400);
   };
   return (
     <div className="demo-banner" role="note">
-      <b>Demo mode</b>: everything runs in your browser, no real payments or emails. Logins: {DEMO_ACCOUNTS.map((a) => a.email).join(' / ')}.
-      <button onClick={reset}>Reset demo data</button>
+      <b>Live preview</b>: everything runs in your browser, no real payments or emails. Roles to try: {DEMO_ACCOUNTS.map((a) => `${a.role} (${a.email})`).join(', ')}.
+      <button onClick={reset}>Reset preview data</button>
     </div>
   );
 };
@@ -35,7 +33,7 @@ const Layout = ({ children, title, description }) => {
   return (
     <>
       <a className="skip" href="#main">Skip to content</a>
-      {DEMO && <DemoBanner />}
+      {DEMO && <PreviewBanner />}
       <Header />
       <main id="main" tabIndex={-1}>{children}</main>
       <Footer />
